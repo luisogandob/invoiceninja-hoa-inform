@@ -1,0 +1,244 @@
+import jsreport from 'jsreport-core';
+import chromePdf from 'jsreport-chrome-pdf';
+import { format } from 'date-fns';
+import type { Expense } from './invoiceNinjaClient.js';
+
+/**
+ * Report data structure
+ */
+export interface ReportData {
+  expenses: Expense[];
+  title: string;
+  period: string;
+  totalAmount: number;
+  generatedDate: Date;
+}
+
+/**
+ * JSReport instance type
+ */
+type JSReportInstance = any;
+
+/**
+ * PDF Generator using JSReport
+ * Generates expense reports in PDF format
+ */
+class PDFGenerator {
+  private jsreport: JSReportInstance | null = null;
+
+  /**
+   * Initialize JSReport instance
+   */
+  async init(): Promise<void> {
+    if (this.jsreport) {
+      return;
+    }
+
+    this.jsreport = jsreport();
+    this.jsreport.use(chromePdf({
+      timeout: 60000
+    }));
+
+    await this.jsreport.init();
+    console.log('JSReport initialized successfully');
+  }
+
+  /**
+   * Generate expense report PDF
+   */
+  async generateExpenseReport(reportData: ReportData): Promise<Buffer> {
+    await this.init();
+
+    const { expenses, title, period, totalAmount, generatedDate } = reportData;
+
+    const htmlTemplate = this.createHTMLTemplate(expenses, title, period, totalAmount, generatedDate);
+
+    try {
+      const result = await this.jsreport.render({
+        template: {
+          content: htmlTemplate,
+          engine: 'none',
+          recipe: 'chrome-pdf',
+          chrome: {
+            format: 'A4',
+            displayHeaderFooter: true,
+            headerTemplate: '<div></div>',
+            footerTemplate: `
+              <div style="width: 100%; text-align: center; font-size: 10px; padding: 10px;">
+                <span class="pageNumber"></span> / <span class="totalPages"></span>
+              </div>
+            `,
+            marginTop: '1cm',
+            marginBottom: '1.5cm',
+            marginLeft: '1cm',
+            marginRight: '1cm'
+          }
+        }
+      });
+
+      return result.content;
+    } catch (error) {
+      console.error('Error generating PDF:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Create HTML template for the report
+   */
+  private createHTMLTemplate(
+    expenses: Expense[],
+    title: string,
+    period: string,
+    totalAmount: number,
+    generatedDate: Date
+  ): string {
+    const expenseRows = expenses.map(expense => `
+      <tr>
+        <td>${format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd')}</td>
+        <td>${this.escapeHtml(expense.public_notes || expense.description || '-')}</td>
+        <td>${this.escapeHtml(expense.vendor_name || expense.vendor?.name || '-')}</td>
+        <td>${this.escapeHtml(expense.category_name || expense.category?.name || '-')}</td>
+        <td style="text-align: right;">$${this.formatAmount(expense.amount)}</td>
+      </tr>
+    `).join('');
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>${this.escapeHtml(title)}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      color: #333;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid #2c3e50;
+    }
+    h1 {
+      color: #2c3e50;
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #7f8c8d;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th {
+      background-color: #34495e;
+      color: white;
+      padding: 12px;
+      text-align: left;
+      font-weight: bold;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+    td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #ecf0f1;
+      font-size: 11px;
+    }
+    tr:hover {
+      background-color: #f8f9fa;
+    }
+    .total-row {
+      background-color: #ecf0f1;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .total-row td {
+      padding: 15px 12px;
+      border-top: 2px solid #34495e;
+    }
+    .footer {
+      margin-top: 30px;
+      text-align: center;
+      color: #95a5a6;
+      font-size: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>${this.escapeHtml(title)}</h1>
+    <div class="subtitle">Period: ${this.escapeHtml(period)}</div>
+    <div class="subtitle">Generated: ${format(generatedDate, 'yyyy-MM-dd HH:mm')}</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Description</th>
+        <th>Vendor</th>
+        <th>Category</th>
+        <th style="text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${expenseRows}
+      <tr class="total-row">
+        <td colspan="4" style="text-align: right;">TOTAL:</td>
+        <td style="text-align: right;">$${this.formatAmount(totalAmount)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer">
+    <p>This report was automatically generated by the HOA Expense Automation System</p>
+  </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  /**
+   * Format amount to 2 decimal places
+   */
+  private formatAmount(amount: number): string {
+    return parseFloat(String(amount || 0)).toFixed(2);
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  private escapeHtml(text: string): string {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+  }
+
+  /**
+   * Close JSReport instance
+   */
+  async close(): Promise<void> {
+    if (this.jsreport) {
+      await this.jsreport.close();
+      this.jsreport = null;
+    }
+  }
+}
+
+export default PDFGenerator;

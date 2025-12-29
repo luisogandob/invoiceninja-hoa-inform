@@ -1,0 +1,68 @@
+name: Monthly Expense Report
+
+# This workflow generates and sends the monthly expense report
+# It runs automatically on the 1st of each month at 9 AM UTC
+
+on:
+  # Run on schedule (1st of each month at 9 AM UTC)
+  schedule:
+    - cron: '0 9 1 * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      period:
+        description: 'Report period'
+        required: false
+        default: 'last-month'
+        type: choice
+        options:
+          - current-month
+          - last-month
+          - current-year
+          - last-year
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: true
+
+      - name: Generate and send report
+        run: npm start report ${{ inputs.period || 'last-month' }}
+        env:
+          INVOICE_NINJA_URL: ${{ secrets.INVOICE_NINJA_URL }}
+          INVOICE_NINJA_TOKEN: ${{ secrets.INVOICE_NINJA_TOKEN }}
+          EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+          EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
+          EMAIL_SECURE: ${{ secrets.EMAIL_SECURE }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          REPORT_TITLE: ${{ secrets.REPORT_TITLE || 'HOA Expense Report' }}
+          REPORT_PERIOD: ${{ secrets.REPORT_PERIOD || 'monthly' }}
+
+      - name: Upload report artifact (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: expense-report-${{ github.run_number }}
+          path: '*.pdf'
+          if-no-files-found: ignore
