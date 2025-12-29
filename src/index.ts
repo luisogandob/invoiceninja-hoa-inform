@@ -344,7 +344,9 @@ async function main(): Promise<void> {
 }
 
 // Run main function if this is the entry point
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Convert process.argv[1] to a file URL for comparison
+import { pathToFileURL } from 'url';
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
 
