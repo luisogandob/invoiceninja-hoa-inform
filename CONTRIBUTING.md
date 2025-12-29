@@ -1,4 +1,4 @@
-# Contributing to Invoice Ninja HOA Expense Automation
+# Contributing to Invoice Ninja HOA Financial Reporting
 
 Thank you for considering contributing to this project!
 
@@ -33,6 +33,7 @@ npm start test
 
 ## Code Style
 
+- Use TypeScript with proper typing
 - Use ES6+ features (this is an ESM project)
 - Use meaningful variable and function names
 - Add comments for complex logic
@@ -46,8 +47,10 @@ Before submitting a PR:
 1. Ensure all existing functionality works
 2. Test with the `test` command: `npm start test`
 3. Test report generation with different periods
-4. Verify PDF generation works correctly
+4. Verify PDF generation works correctly with both income and expenses
 5. Verify email sending works correctly
+6. Run type checking: `npm run typecheck`
+7. Build the project: `npm run build`
 
 ## Submitting Changes
 

@@ -1,6 +1,6 @@
-name: Monthly Expense Report
+name: Monthly Financial Report
 
-# This workflow generates and sends the monthly expense report
+# This workflow generates and sends the monthly financial report (income and expenses)
 # It runs automatically on the 1st of each month at 9 AM UTC
 
 on:
@@ -56,13 +56,13 @@ jobs:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-          REPORT_TITLE: ${{ secrets.REPORT_TITLE || 'HOA Expense Report' }}
+          REPORT_TITLE: ${{ secrets.REPORT_TITLE || 'HOA Financial Report' }}
           REPORT_PERIOD: ${{ secrets.REPORT_PERIOD || 'monthly' }}
 
       - name: Upload report artifact (on failure)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: expense-report-${{ github.run_number }}
+          name: financial-report-${{ github.run_number }}
           path: '*.pdf'
           if-no-files-found: ignore

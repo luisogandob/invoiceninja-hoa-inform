@@ -1,20 +1,22 @@
-# Invoice Ninja HOA Expense Automation
+# Invoice Ninja HOA Financial Reporting
 
-Business Intelligence and automation system for HOA (Homeowners Association) using self-hosted Invoice Ninja.
+Business Intelligence and automation system for HOA (Homeowners Association) financial reporting using self-hosted Invoice Ninja.
 
 ## Overview
 
-This system automates the process of generating and distributing expense reports for a Homeowners Association. It connects to a self-hosted Invoice Ninja instance, retrieves expense data, generates professional PDF reports, and emails them to stakeholders.
+This system automates the process of generating and distributing financial reports for a Homeowners Association. It connects to a self-hosted Invoice Ninja instance, retrieves both income (invoices) and expense data, generates professional PDF reports, and emails them to stakeholders.
 
 ## Features
 
 - 🔗 **Invoice Ninja Integration** - Connects to self-hosted Invoice Ninja via REST API
-- 📊 **Data Processing** - Advanced filtering, grouping, and analysis of expenses
-- 📄 **PDF Generation** - Professional PDF reports using JSReport and Chrome PDF
+- 💰 **Income Tracking** - Retrieves and reports on invoices (income/revenue)
+- 💸 **Expense Tracking** - Retrieves and reports on expenses
+- 📊 **Data Processing** - Advanced filtering, grouping, and analysis of financial data
+- 📄 **PDF Generation** - Professional PDF reports with income, expenses, and net results
 - 📧 **Email Distribution** - Automated email delivery with attachments
 - 📅 **Date Management** - Flexible date range selection and filtering
-- 🏷️ **Categorization** - Group expenses by category, vendor, or time period
-- 📈 **Statistics** - Comprehensive expense statistics and summaries
+- 🏷️ **Categorization** - Group by category, vendor, client, or time period
+- 📈 **Statistics** - Comprehensive financial statistics and summaries
 
 ## Technology Stack
 
@@ -99,7 +101,7 @@ Edit `.env` and set your configuration:
 | `EMAIL_PASSWORD` | SMTP password | `your-password` |
 | `EMAIL_FROM` | Sender email address | `hoa@example.com` |
 | `EMAIL_TO` | Default recipient email(s) | `recipients@example.com` |
-| `REPORT_TITLE` | Report title | `HOA Expense Report` |
+| `REPORT_TITLE` | Report title | `HOA Financial Report` |
 | `REPORT_PERIOD` | Default report period | `current-month` |
 
 ## Usage
@@ -121,9 +123,9 @@ npm start test-inform
 ```
 
 This command will:
-- Fetch expenses from Invoice Ninja
-- Display expense statistics and details on screen
-- Generate a PDF file (`expense-report-test.pdf`)
+- Fetch invoices (income) and expenses from Invoice Ninja
+- Display financial statistics and details on screen
+- Generate a PDF file (`financial-report-test.pdf`)
 - **Not send any email**
 
 You can also specify a period:
@@ -185,7 +187,7 @@ npm run typecheck
 ## Project Structure
 
 ```
-invoiceninja-hoa-expense-automation/
+invoiceninja-hoa-inform/
 ├── src/
 │   ├── index.ts                  # Main application entry point
 │   ├── examples.ts               # Usage examples
@@ -209,6 +211,8 @@ Handles all interactions with the Invoice Ninja API:
 
 - `getExpenses(filters)` - Retrieve expenses with optional filtering
 - `getExpense(expenseId)` - Get a single expense by ID
+- `getInvoices(filters)` - Retrieve invoices (income) with optional filtering
+- `getInvoice(invoiceId)` - Get a single invoice by ID
 - `getClients()` - Retrieve all clients
 - `getVendors()` - Retrieve all vendors
 - `getExpenseCategories()` - Retrieve expense categories
@@ -219,15 +223,15 @@ Handles all interactions with the Invoice Ninja API:
 
 Generates professional PDF reports:
 
-- `generateExpenseReport(reportData)` - Create a formatted expense report
-- Includes header, expense table, totals, and footer
+- `generateFinancialReport(reportData)` - Create a formatted financial report with income and expenses
+- Includes header, income table, expense table, net summary, totals, and footer
 - Automatic pagination and formatting
 
 ### EmailSender
 
 Manages email distribution:
 
-- `sendExpenseReport(options)` - Send report with PDF attachment
+- `sendFinancialReport(options)` - Send report with PDF attachment
 - `sendNotification(to, subject, message)` - Send simple notifications
 - `verifyConnection()` - Test email configuration
 
@@ -236,33 +240,52 @@ Manages email distribution:
 Utility functions for data processing:
 
 - `getDateRange(period, customRange)` - Calculate date ranges
-- `filterExpensesByDate(expenses, start, end)` - Filter by date
+- `filterExpensesByDate(expenses, start, end)` - Filter expenses by date
+- `filterInvoicesByDate(invoices, start, end)` - Filter invoices by date
 - `calculateTotal(expenses)` - Sum expense amounts
+- `calculateInvoiceTotal(invoices)` - Sum invoice amounts
 - `groupByCategory(expenses)` - Group expenses by category
 - `groupByVendor(expenses)` - Group expenses by vendor
+- `groupByClient(invoices)` - Group invoices by client
 - `groupByMonth(expenses)` - Group expenses by month
-- `sortByDate(expenses, order)` - Sort by date
+- `groupInvoicesByMonth(invoices)` - Group invoices by month
+- `sortByDate(expenses, order)` - Sort expenses by date
+- `sortInvoicesByDate(invoices, order)` - Sort invoices by date
 - `sortByAmount(expenses, order)` - Sort by amount
-- `getExpenseStats(expenses)` - Calculate statistics
+- `sortInvoicesByAmount(invoices, order)` - Sort invoices by amount
+- `getExpenseStats(expenses)` - Calculate expense statistics
+- `getInvoiceStats(invoices)` - Calculate invoice statistics
 
 ## Report Features
 
 ### PDF Report Includes
 
 - Professional header with title and period
+- Summary section with:
+  - Total Income
+  - Total Expenses
+  - Net Amount (Surplus/Deficit)
+- Income table with:
+  - Date
+  - Invoice Number
+  - Client
+  - Description
+  - Amount
 - Expense table with:
   - Date
   - Description
   - Vendor
   - Category
   - Amount
-- Total amount calculation
+- Total calculations for both income and expenses
 - Automatic pagination with page numbers
-- Clean, professional formatting
+- Clean, professional formatting with color-coded sections
 
 ### Email Report Includes
 
-- Summary statistics (count, total, average, min, max)
+- Summary statistics (income and expense counts, totals, averages)
+- Net amount with surplus/deficit indication
+- Income grouped by client
 - Expenses grouped by category
 - PDF attachment
 - HTML and plain text versions

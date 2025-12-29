@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get up and running with Invoice Ninja HOA Expense Automation in 5 minutes!
+Get up and running with Invoice Ninja HOA Financial Reporting in 5 minutes!
 
 ## Prerequisites
 
@@ -61,7 +61,7 @@ EMAIL_TO=recipients@yourdomain.com
 ### Report Settings
 
 ```env
-REPORT_TITLE=HOA Expense Report
+REPORT_TITLE=HOA Financial Report
 REPORT_PERIOD=monthly
 ```
 
@@ -84,10 +84,10 @@ npm start report last-month
 ```
 
 This will:
-1. Fetch expenses from Invoice Ninja
-2. Generate a PDF report
+1. Fetch invoices (income) and expenses from Invoice Ninja
+2. Generate a PDF report with both income and expenses
 3. Email it to configured recipients
-4. Save a copy locally as `expense-report.pdf`
+4. Save a copy locally as `financial-report.pdf`
 
 ## Common Commands
 
@@ -148,15 +148,16 @@ The repository includes `.github/workflows/monthly-report.yml`. To use it:
 
 ### Customize PDF Reports
 
-Edit `src/lib/pdfGenerator.js` to customize:
+Edit `src/lib/pdfGenerator.ts` to customize:
 - Colors and styling
-- Table columns
+- Income and expense table columns
 - Header/footer content
 - Page layout
+- Summary section format
 
 ### Customize Email Content
 
-Edit `src/index.js` methods:
+Edit `src/index.ts` methods:
 - `generateEmailText()` - Plain text version
 - `generateEmailHtml()` - HTML version
 
@@ -180,6 +181,12 @@ Edit `src/index.js` methods:
 - Verify expenses exist in Invoice Ninja for the period
 - Check expense dates are correct
 - Try with a different period
+
+### "No invoices found" or "No financial records found"
+
+- Verify invoices and/or expenses exist in Invoice Ninja for the period
+- Check dates are correct
+- Ensure Invoice Ninja is properly configured
 
 ### PDF Generation Issues
 
