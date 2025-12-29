@@ -1,20 +1,35 @@
 import jsreport from 'jsreport-core';
 import chromePdf from 'jsreport-chrome-pdf';
 import { format } from 'date-fns';
+import type { Expense } from './invoiceNinjaClient.js';
+
+/**
+ * Report data structure
+ */
+export interface ReportData {
+  expenses: Expense[];
+  title: string;
+  period: string;
+  totalAmount: number;
+  generatedDate: Date;
+}
+
+/**
+ * JSReport instance type
+ */
+type JSReportInstance = any;
 
 /**
  * PDF Generator using JSReport
  * Generates expense reports in PDF format
  */
 class PDFGenerator {
-  constructor() {
-    this.jsreport = null;
-  }
+  private jsreport: JSReportInstance | null = null;
 
   /**
    * Initialize JSReport instance
    */
-  async init() {
+  async init(): Promise<void> {
     if (this.jsreport) {
       return;
     }
@@ -30,10 +45,8 @@ class PDFGenerator {
 
   /**
    * Generate expense report PDF
-   * @param {Object} reportData - Report data containing expenses and metadata
-   * @returns {Promise<Buffer>} PDF buffer
    */
-  async generateExpenseReport(reportData) {
+  async generateExpenseReport(reportData: ReportData): Promise<Buffer> {
     await this.init();
 
     const { expenses, title, period, totalAmount, generatedDate } = reportData;
@@ -65,19 +78,24 @@ class PDFGenerator {
 
       return result.content;
     } catch (error) {
-      console.error('Error generating PDF:', error.message);
+      console.error('Error generating PDF:', (error as Error).message);
       throw error;
     }
   }
 
   /**
    * Create HTML template for the report
-   * @private
    */
-  createHTMLTemplate(expenses, title, period, totalAmount, generatedDate) {
+  private createHTMLTemplate(
+    expenses: Expense[],
+    title: string,
+    period: string,
+    totalAmount: number,
+    generatedDate: Date
+  ): string {
     const expenseRows = expenses.map(expense => `
       <tr>
-        <td>${format(new Date(expense.date || expense.expense_date), 'yyyy-MM-dd')}</td>
+        <td>${format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd')}</td>
         <td>${this.escapeHtml(expense.public_notes || expense.description || '-')}</td>
         <td>${this.escapeHtml(expense.vendor_name || expense.vendor?.name || '-')}</td>
         <td>${this.escapeHtml(expense.category_name || expense.category?.name || '-')}</td>
@@ -193,18 +211,16 @@ class PDFGenerator {
 
   /**
    * Format amount to 2 decimal places
-   * @private
    */
-  formatAmount(amount) {
-    return parseFloat(amount || 0).toFixed(2);
+  private formatAmount(amount: number): string {
+    return parseFloat(String(amount || 0)).toFixed(2);
   }
 
   /**
    * Escape HTML special characters
-   * @private
    */
-  escapeHtml(text) {
-    const map = {
+  private escapeHtml(text: string): string {
+    const map: Record<string, string> = {
       '&': '&amp;',
       '<': '&lt;',
       '>': '&gt;',
@@ -217,7 +233,7 @@ class PDFGenerator {
   /**
    * Close JSReport instance
    */
-  async close() {
+  async close(): Promise<void> {
     if (this.jsreport) {
       await this.jsreport.close();
       this.jsreport = null;

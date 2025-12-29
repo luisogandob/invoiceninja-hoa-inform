@@ -1,23 +1,48 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { Transporter } from 'nodemailer';
+import type { SentMessageInfo } from 'nodemailer';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+/**
+ * Email options for expense report
+ */
+export interface ExpenseReportEmailOptions {
+  to?: string;
+  subject: string;
+  text: string;
+  html: string;
+  pdfBuffer?: Buffer;
+  pdfFilename?: string;
+}
+
+/**
+ * Email send result
+ */
+export interface EmailResult {
+  success: boolean;
+  messageId: string;
+  response?: string;
+}
 
 /**
  * Email Sender using Nodemailer
  * Handles sending expense reports via email
  */
 class EmailSender {
+  private transporter: Transporter | null = null;
+  private from: string;
+  private defaultTo: string;
+
   constructor() {
-    this.transporter = null;
-    this.from = process.env.EMAIL_FROM;
-    this.defaultTo = process.env.EMAIL_TO;
+    this.from = process.env.EMAIL_FROM || '';
+    this.defaultTo = process.env.EMAIL_TO || '';
   }
 
   /**
    * Initialize email transporter
    */
-  init() {
+  init(): void {
     if (this.transporter) {
       return;
     }
@@ -43,16 +68,8 @@ class EmailSender {
 
   /**
    * Send expense report email with PDF attachment
-   * @param {Object} options - Email options
-   * @param {string} options.to - Recipient email address(es)
-   * @param {string} options.subject - Email subject
-   * @param {string} options.text - Plain text body
-   * @param {string} options.html - HTML body
-   * @param {Buffer} options.pdfBuffer - PDF attachment buffer
-   * @param {string} options.pdfFilename - PDF filename
-   * @returns {Promise<Object>} Send result
    */
-  async sendExpenseReport(options) {
+  async sendExpenseReport(options: ExpenseReportEmailOptions): Promise<EmailResult> {
     this.init();
 
     const {
@@ -68,7 +85,7 @@ class EmailSender {
       throw new Error('Recipient email address is required');
     }
 
-    const mailOptions = {
+    const mailOptions: any = {
       from: this.from,
       to: to,
       subject: subject,
@@ -87,7 +104,7 @@ class EmailSender {
     }
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info: SentMessageInfo = await this.transporter!.sendMail(mailOptions);
       console.log('Email sent successfully:', info.messageId);
       return {
         success: true,
@@ -95,19 +112,15 @@ class EmailSender {
         response: info.response
       };
     } catch (error) {
-      console.error('Error sending email:', error.message);
+      console.error('Error sending email:', (error as Error).message);
       throw error;
     }
   }
 
   /**
    * Send a simple notification email
-   * @param {string} to - Recipient email
-   * @param {string} subject - Email subject
-   * @param {string} message - Email message
-   * @returns {Promise<Object>} Send result
    */
-  async sendNotification(to, subject, message) {
+  async sendNotification(to: string, subject: string, message: string): Promise<EmailResult> {
     this.init();
 
     const mailOptions = {
@@ -119,31 +132,30 @@ class EmailSender {
     };
 
     try {
-      const info = await this.transporter.sendMail(mailOptions);
+      const info: SentMessageInfo = await this.transporter!.sendMail(mailOptions);
       console.log('Notification sent successfully:', info.messageId);
       return {
         success: true,
         messageId: info.messageId
       };
     } catch (error) {
-      console.error('Error sending notification:', error.message);
+      console.error('Error sending notification:', (error as Error).message);
       throw error;
     }
   }
 
   /**
    * Verify email configuration
-   * @returns {Promise<boolean>} True if configuration is valid
    */
-  async verifyConnection() {
+  async verifyConnection(): Promise<boolean> {
     this.init();
 
     try {
-      await this.transporter.verify();
+      await this.transporter!.verify();
       console.log('Email connection verified successfully');
       return true;
     } catch (error) {
-      console.error('Email connection verification failed:', error.message);
+      console.error('Email connection verification failed:', (error as Error).message);
       return false;
     }
   }

@@ -9,21 +9,70 @@ import {
   parseISO,
   isWithinInterval
 } from 'date-fns';
+import type { Expense } from './invoiceNinjaClient.js';
 
 /**
- * Data Processing Utilities
- * Helper functions for processing expense data and date operations
+ * Date range result
  */
+export interface DateRange {
+  start: Date;
+  end: Date;
+  startISO: string;
+  endISO: string;
+}
+
+/**
+ * Custom date range input
+ */
+export interface CustomRange {
+  start: string | Date;
+  end: string | Date;
+}
+
+/**
+ * Grouped expenses data
+ */
+export interface GroupedExpenses {
+  expenses: Expense[];
+  total: number;
+}
+
+/**
+ * Monthly grouped expenses
+ */
+export interface MonthlyGroupedExpenses {
+  label: string;
+  expenses: Expense[];
+  total: number;
+}
+
+/**
+ * Expense statistics
+ */
+export interface ExpenseStats {
+  count: number;
+  total: number;
+  average: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * Period type
+ */
+export type PeriodType = 'current-month' | 'last-month' | 'current-year' | 'last-year' | 'custom';
+
+/**
+ * Sort order
+ */
+export type SortOrder = 'asc' | 'desc';
 
 /**
  * Get date range for a specific period
- * @param {string} period - Period type: 'current-month', 'last-month', 'current-year', 'last-year', 'custom'
- * @param {Object} customRange - Custom date range {start, end}
- * @returns {Object} Date range with start and end dates
  */
-export function getDateRange(period = 'current-month', customRange = null) {
+export function getDateRange(period: PeriodType = 'current-month', customRange: CustomRange | null = null): DateRange {
   const now = new Date();
-  let start, end;
+  let start: Date, end: Date;
 
   switch (period) {
     case 'current-month':
@@ -65,36 +114,28 @@ export function getDateRange(period = 'current-month', customRange = null) {
 
 /**
  * Filter expenses by date range
- * @param {Array} expenses - Array of expense objects
- * @param {Date} startDate - Start date
- * @param {Date} endDate - End date
- * @returns {Array} Filtered expenses
  */
-export function filterExpensesByDate(expenses, startDate, endDate) {
+export function filterExpensesByDate(expenses: Expense[], startDate: Date, endDate: Date): Expense[] {
   return expenses.filter(expense => {
-    const expenseDate = parseISO(expense.date || expense.expense_date);
+    const expenseDate = parseISO(expense.date || expense.expense_date || '');
     return isWithinInterval(expenseDate, { start: startDate, end: endDate });
   });
 }
 
 /**
  * Calculate total amount from expenses
- * @param {Array} expenses - Array of expense objects
- * @returns {number} Total amount
  */
-export function calculateTotal(expenses) {
+export function calculateTotal(expenses: Expense[]): number {
   return expenses.reduce((total, expense) => {
-    return total + parseFloat(expense.amount || 0);
+    return total + parseFloat(String(expense.amount || 0));
   }, 0);
 }
 
 /**
  * Group expenses by category
- * @param {Array} expenses - Array of expense objects
- * @returns {Object} Expenses grouped by category
  */
-export function groupByCategory(expenses) {
-  const grouped = {};
+export function groupByCategory(expenses: Expense[]): Record<string, GroupedExpenses> {
+  const grouped: Record<string, GroupedExpenses> = {};
 
   expenses.forEach(expense => {
     const category = expense.category_name || expense.category?.name || 'Uncategorized';
@@ -105,7 +146,7 @@ export function groupByCategory(expenses) {
       };
     }
     grouped[category].expenses.push(expense);
-    grouped[category].total += parseFloat(expense.amount || 0);
+    grouped[category].total += parseFloat(String(expense.amount || 0));
   });
 
   return grouped;
@@ -113,11 +154,9 @@ export function groupByCategory(expenses) {
 
 /**
  * Group expenses by vendor
- * @param {Array} expenses - Array of expense objects
- * @returns {Object} Expenses grouped by vendor
  */
-export function groupByVendor(expenses) {
-  const grouped = {};
+export function groupByVendor(expenses: Expense[]): Record<string, GroupedExpenses> {
+  const grouped: Record<string, GroupedExpenses> = {};
 
   expenses.forEach(expense => {
     const vendor = expense.vendor_name || expense.vendor?.name || 'Unknown Vendor';
@@ -128,7 +167,7 @@ export function groupByVendor(expenses) {
       };
     }
     grouped[vendor].expenses.push(expense);
-    grouped[vendor].total += parseFloat(expense.amount || 0);
+    grouped[vendor].total += parseFloat(String(expense.amount || 0));
   });
 
   return grouped;
@@ -136,14 +175,12 @@ export function groupByVendor(expenses) {
 
 /**
  * Group expenses by month
- * @param {Array} expenses - Array of expense objects
- * @returns {Object} Expenses grouped by month
  */
-export function groupByMonth(expenses) {
-  const grouped = {};
+export function groupByMonth(expenses: Expense[]): Record<string, MonthlyGroupedExpenses> {
+  const grouped: Record<string, MonthlyGroupedExpenses> = {};
 
   expenses.forEach(expense => {
-    const expenseDate = parseISO(expense.date || expense.expense_date);
+    const expenseDate = parseISO(expense.date || expense.expense_date || '');
     const monthKey = format(expenseDate, 'yyyy-MM');
     const monthLabel = format(expenseDate, 'MMMM yyyy');
 
@@ -155,7 +192,7 @@ export function groupByMonth(expenses) {
       };
     }
     grouped[monthKey].expenses.push(expense);
-    grouped[monthKey].total += parseFloat(expense.amount || 0);
+    grouped[monthKey].total += parseFloat(String(expense.amount || 0));
   });
 
   return grouped;
@@ -163,38 +200,30 @@ export function groupByMonth(expenses) {
 
 /**
  * Sort expenses by date
- * @param {Array} expenses - Array of expense objects
- * @param {string} order - Sort order: 'asc' or 'desc'
- * @returns {Array} Sorted expenses
  */
-export function sortByDate(expenses, order = 'desc') {
+export function sortByDate(expenses: Expense[], order: SortOrder = 'desc'): Expense[] {
   return [...expenses].sort((a, b) => {
-    const dateA = parseISO(a.date || a.expense_date);
-    const dateB = parseISO(b.date || b.expense_date);
-    return order === 'asc' ? dateA - dateB : dateB - dateA;
+    const dateA = parseISO(a.date || a.expense_date || '');
+    const dateB = parseISO(b.date || b.expense_date || '');
+    return order === 'asc' ? dateA.getTime() - dateB.getTime() : dateB.getTime() - dateA.getTime();
   });
 }
 
 /**
  * Sort expenses by amount
- * @param {Array} expenses - Array of expense objects
- * @param {string} order - Sort order: 'asc' or 'desc'
- * @returns {Array} Sorted expenses
  */
-export function sortByAmount(expenses, order = 'desc') {
+export function sortByAmount(expenses: Expense[], order: SortOrder = 'desc'): Expense[] {
   return [...expenses].sort((a, b) => {
-    const amountA = parseFloat(a.amount || 0);
-    const amountB = parseFloat(b.amount || 0);
+    const amountA = parseFloat(String(a.amount || 0));
+    const amountB = parseFloat(String(b.amount || 0));
     return order === 'asc' ? amountA - amountB : amountB - amountA;
   });
 }
 
 /**
  * Get expense statistics
- * @param {Array} expenses - Array of expense objects
- * @returns {Object} Statistics object
  */
-export function getExpenseStats(expenses) {
+export function getExpenseStats(expenses: Expense[]): ExpenseStats {
   if (expenses.length === 0) {
     return {
       count: 0,
@@ -205,7 +234,7 @@ export function getExpenseStats(expenses) {
     };
   }
 
-  const amounts = expenses.map(e => parseFloat(e.amount || 0));
+  const amounts = expenses.map(e => parseFloat(String(e.amount || 0)));
   const total = amounts.reduce((sum, amount) => sum + amount, 0);
 
   return {
@@ -219,11 +248,8 @@ export function getExpenseStats(expenses) {
 
 /**
  * Format period string for display
- * @param {string} period - Period type
- * @param {Object} dateRange - Date range object
- * @returns {string} Formatted period string
  */
-export function formatPeriodString(period, dateRange) {
+export function formatPeriodString(period: PeriodType, dateRange: DateRange): string {
   const { start, end } = dateRange;
 
   switch (period) {

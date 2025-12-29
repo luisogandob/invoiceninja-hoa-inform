@@ -19,6 +19,7 @@ This system automates the process of generating and distributing expense reports
 ## Technology Stack
 
 - **Runtime**: Node.js (ESM)
+- **Language**: TypeScript
 - **HTTP Client**: Axios
 - **PDF Generation**: JSReport-core + JSReport-chrome-pdf
 - **Date Handling**: date-fns
@@ -108,10 +109,28 @@ Available periods:
 
 ### Development Mode
 
-Run with auto-reload on file changes:
+Run with auto-reload on file changes (TypeScript):
 
 ```bash
 npm run dev
+```
+
+### Build
+
+Compile TypeScript to JavaScript:
+
+```bash
+npm run build
+```
+
+The compiled code will be in the `dist/` directory.
+
+### Type Checking
+
+Run TypeScript type checking without building:
+
+```bash
+npm run typecheck
 ```
 
 ## Project Structure
@@ -119,13 +138,16 @@ npm run dev
 ```
 invoiceninja-hoa-expense-automation/
 ├── src/
-│   ├── index.js                  # Main application entry point
+│   ├── index.ts                  # Main application entry point
+│   ├── examples.ts               # Usage examples
 │   └── lib/
-│       ├── invoiceNinjaClient.js # Invoice Ninja API client
-│       ├── pdfGenerator.js       # PDF report generation
-│       ├── emailSender.js        # Email sending functionality
-│       └── dataUtils.js          # Data processing utilities
+│       ├── invoiceNinjaClient.ts # Invoice Ninja API client
+│       ├── pdfGenerator.ts       # PDF report generation
+│       ├── emailSender.ts        # Email sending functionality
+│       └── dataUtils.ts          # Data processing utilities
+├── dist/                         # Compiled JavaScript (generated)
 ├── .env.example                  # Environment configuration template
+├── tsconfig.json                 # TypeScript configuration
 ├── package.json                  # Project dependencies and scripts
 └── README.md                     # This file
 ```

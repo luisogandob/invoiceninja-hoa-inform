@@ -6,7 +6,7 @@ import HOAExpenseAutomation from './index.js';
  */
 
 // Example 1: Generate report for current month
-async function example1() {
+async function example1(): Promise<void> {
   console.log('\n=== Example 1: Current Month Report ===');
   const automation = new HOAExpenseAutomation();
   
@@ -19,12 +19,12 @@ async function example1() {
     console.log('Success:', result.message);
     console.log('Stats:', result.stats);
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', (error as Error).message);
   }
 }
 
 // Example 2: Generate report for last month
-async function example2() {
+async function example2(): Promise<void> {
   console.log('\n=== Example 2: Last Month Report ===');
   const automation = new HOAExpenseAutomation();
   
@@ -35,12 +35,12 @@ async function example2() {
     });
     console.log('Success:', result.message);
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', (error as Error).message);
   }
 }
 
 // Example 3: Generate report with custom date range
-async function example3() {
+async function example3(): Promise<void> {
   console.log('\n=== Example 3: Custom Date Range ===');
   const automation = new HOAExpenseAutomation();
   
@@ -55,12 +55,12 @@ async function example3() {
     });
     console.log('Success:', result.message);
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', (error as Error).message);
   }
 }
 
 // Example 4: Test connections only
-async function example4() {
+async function example4(): Promise<void> {
   console.log('\n=== Example 4: Test Connections ===');
   const automation = new HOAExpenseAutomation();
   
@@ -69,12 +69,12 @@ async function example4() {
     console.log('Invoice Ninja:', result.invoiceNinja ? '✓' : '✗');
     console.log('Email:', result.email ? '✓' : '✗');
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', (error as Error).message);
   }
 }
 
 // Example 5: Generate report and send to specific email
-async function example5() {
+async function example5(): Promise<void> {
   console.log('\n=== Example 5: Send to Specific Email ===');
   const automation = new HOAExpenseAutomation();
   
@@ -86,12 +86,12 @@ async function example5() {
     });
     console.log('Success:', result.message);
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('Error:', (error as Error).message);
   }
 }
 
 // Run the examples
-async function runExamples() {
+async function runExamples(): Promise<void> {
   // Uncomment the examples you want to run
   
   // await example1();  // Current month report
