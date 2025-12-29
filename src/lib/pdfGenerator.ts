@@ -101,9 +101,15 @@ class PDFGenerator {
   ): string {
     const incomeRows = invoices.map(invoice => {
       const dateStr = invoice.date || invoice.invoice_date || new Date().toISOString();
+      let formattedDate = 'N/A';
+      try {
+        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
+      } catch {
+        formattedDate = format(new Date(), 'yyyy-MM-dd');
+      }
       return `
       <tr>
-        <td>${format(new Date(dateStr), 'yyyy-MM-dd')}</td>
+        <td>${formattedDate}</td>
         <td>${this.escapeHtml(invoice.number || '-')}</td>
         <td>${this.escapeHtml(invoice.client_name || invoice.client?.name || '-')}</td>
         <td>${this.escapeHtml(invoice.public_notes || '-')}</td>
@@ -114,9 +120,15 @@ class PDFGenerator {
 
     const expenseRows = expenses.map(expense => {
       const dateStr = expense.date || expense.expense_date || new Date().toISOString();
+      let formattedDate = 'N/A';
+      try {
+        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
+      } catch {
+        formattedDate = format(new Date(), 'yyyy-MM-dd');
+      }
       return `
       <tr>
-        <td>${format(new Date(dateStr), 'yyyy-MM-dd')}</td>
+        <td>${formattedDate}</td>
         <td>${this.escapeHtml(expense.public_notes || expense.description || '-')}</td>
         <td>${this.escapeHtml(expense.vendor_name || expense.vendor?.name || '-')}</td>
         <td>${this.escapeHtml(expense.category_name || expense.category?.name || '-')}</td>
