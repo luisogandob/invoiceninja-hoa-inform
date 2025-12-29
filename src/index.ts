@@ -4,26 +4,37 @@ import { promises as fs } from 'fs';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import PDFGenerator from './lib/pdfGenerator.js';
 import EmailSender from './lib/emailSender.js';
-import type { Expense, Invoice } from './lib/invoiceNinjaClient.js';
-import type { ExpenseStats, InvoiceStats, PeriodType, CustomRange, GroupedExpenses, GroupedInvoices } from './lib/dataUtils.js';
+import type { Expense, Invoice, Payment } from './lib/invoiceNinjaClient.js';
+import type { ExpenseStats, InvoiceStats, PaymentStats, PeriodType, CustomRange, GroupedExpenses, GroupedInvoices, GroupedPayments } from './lib/dataUtils.js';
 import {
   getDateRange,
   filterExpensesByDate,
   filterInvoicesByDate,
+  filterPaymentsByDate,
   calculateTotal,
   calculateInvoiceTotal,
+  calculatePaymentTotal,
   groupByCategory,
   groupByVendor,
   groupByClient,
+  groupPaymentsByClient,
   sortByDate,
   sortInvoicesByDate,
+  sortPaymentsByDate,
   getExpenseStats,
   getInvoiceStats,
+  getPaymentStats,
+  getUnpaidInvoices,
   formatPeriodString
 } from './lib/dataUtils.js';
 
 // Load environment variables
 dotenv.config();
+
+/**
+ * Configuration constants
+ */
+const MAX_UNPAID_INVOICES_IN_EMAIL = 10;
 
 /**
  * Report generation options
@@ -45,8 +56,12 @@ export interface ReportResult {
   stats?: {
     expenseCount: number;
     incomeCount: number;
+    paymentCount: number;
+    unpaidInvoiceCount: number;
     totalExpenses: number;
     totalIncome: number;
+    totalPayments: number;
+    totalUnpaidBalance: number;
     netAmount: number;
     period: string;
   };
@@ -112,13 +127,29 @@ class HOAInformAutomation {
       });
       console.log(`Total invoices fetched for period: ${allInvoices.length}`);
 
+      // Step 3b: Fetch payments made during the period
+      console.log('Fetching payments from Invoice Ninja...');
+      const allPayments = await this.invoiceNinja.getPayments({
+        start_date: dateRange.startISO,
+        end_date: dateRange.endISO
+      });
+      console.log(`Total payments fetched for period: ${allPayments.length}`);
+
+      // Step 3c: Fetch all invoices to check for unpaid/partially paid ones
+      console.log('Fetching all invoices to check for unpaid balances...');
+      const allInvoicesEver = await this.invoiceNinja.getInvoices({});
+      const unpaidInvoices = getUnpaidInvoices(allInvoicesEver);
+      console.log(`Total unpaid/partially paid invoices: ${unpaidInvoices.length}`);
+
       // Step 4: Filter by date range (additional client-side filtering for safety)
       const filteredExpenses = filterExpensesByDate(allExpenses, dateRange.start, dateRange.end);
       const filteredInvoices = filterInvoicesByDate(allInvoices, dateRange.start, dateRange.end);
+      const filteredPayments = filterPaymentsByDate(allPayments, dateRange.start, dateRange.end);
       console.log(`Expenses after filtering: ${filteredExpenses.length}`);
       console.log(`Invoices after filtering: ${filteredInvoices.length}`);
+      console.log(`Payments after filtering: ${filteredPayments.length}`);
 
-      if (filteredExpenses.length === 0 && filteredInvoices.length === 0) {
+      if (filteredExpenses.length === 0 && filteredInvoices.length === 0 && filteredPayments.length === 0) {
         console.log('No financial records found for the selected period.');
         return {
           success: false,
@@ -129,22 +160,29 @@ class HOAInformAutomation {
       // Step 5: Sort by date
       const sortedExpenses = sortByDate(filteredExpenses, 'asc');
       const sortedInvoices = sortInvoicesByDate(filteredInvoices, 'asc');
+      const sortedPayments = sortPaymentsByDate(filteredPayments, 'asc');
 
       // Step 6: Calculate statistics
       const expenseStats = getExpenseStats(sortedExpenses);
       const incomeStats = getInvoiceStats(sortedInvoices);
+      const paymentStats = getPaymentStats(sortedPayments);
       const totalExpenses = calculateTotal(sortedExpenses);
       const totalIncome = calculateInvoiceTotal(sortedInvoices);
-      const netAmount = totalIncome - totalExpenses;
+      const totalPayments = calculatePaymentTotal(sortedPayments);
+      const totalUnpaidBalance = unpaidInvoices.reduce((sum, inv) => sum + parseFloat(String(inv.balance || 0)), 0);
+      const netAmount = totalPayments - totalExpenses; // Net is based on actual payments received
       
-      console.log(`Total Income: $${totalIncome.toFixed(2)}`);
+      console.log(`Total Invoiced: $${totalIncome.toFixed(2)}`);
+      console.log(`Total Payments Received: $${totalPayments.toFixed(2)}`);
       console.log(`Total Expenses: $${totalExpenses.toFixed(2)}`);
-      console.log(`Net Amount: $${netAmount.toFixed(2)}`);
+      console.log(`Total Unpaid Balance: $${totalUnpaidBalance.toFixed(2)}`);
+      console.log(`Net Amount (Payments - Expenses): $${netAmount.toFixed(2)}`);
 
       // Step 7: Group data for analysis
       const byCategory = groupByCategory(sortedExpenses);
       const byVendor = groupByVendor(sortedExpenses);
       const byClient = groupByClient(sortedInvoices);
+      const paymentsByClient = groupPaymentsByClient(sortedPayments);
       console.log(`Expense Categories: ${Object.keys(byCategory).length}`);
       console.log(`Vendors: ${Object.keys(byVendor).length}`);
       console.log(`Clients: ${Object.keys(byClient).length}`);
@@ -157,10 +195,14 @@ class HOAInformAutomation {
       const pdfBuffer = await this.pdfGenerator.generateFinancialReport({
         expenses: sortedExpenses,
         invoices: sortedInvoices,
+        payments: sortedPayments,
+        unpaidInvoices: unpaidInvoices,
         title: reportTitle,
         period: periodString,
         totalExpenses: totalExpenses,
         totalIncome: totalIncome,
+        totalPayments: totalPayments,
+        totalUnpaidBalance: totalUnpaidBalance,
         netAmount: netAmount,
         generatedDate: new Date()
       });
@@ -175,8 +217,32 @@ class HOAInformAutomation {
       // Step 10: Send email
       console.log('Sending email...');
       const emailSubject = `${reportTitle} - ${periodString}`;
-      const emailText = this.generateEmailText(expenseStats, incomeStats, totalExpenses, totalIncome, netAmount, periodString);
-      const emailHtml = this.generateEmailHtml(expenseStats, incomeStats, totalExpenses, totalIncome, netAmount, periodString, byCategory, byClient);
+      const emailText = this.generateEmailText(
+        expenseStats, 
+        incomeStats, 
+        paymentStats, 
+        totalExpenses, 
+        totalIncome, 
+        totalPayments,
+        totalUnpaidBalance,
+        netAmount, 
+        periodString
+      );
+      const emailHtml = this.generateEmailHtml(
+        expenseStats, 
+        incomeStats, 
+        paymentStats,
+        totalExpenses, 
+        totalIncome, 
+        totalPayments,
+        totalUnpaidBalance,
+        netAmount, 
+        periodString, 
+        byCategory, 
+        byClient,
+        paymentsByClient,
+        unpaidInvoices
+      );
       const pdfFilename = `financial-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
 
       await this.emailSender.sendFinancialReport({
@@ -198,8 +264,12 @@ class HOAInformAutomation {
         stats: {
           expenseCount: expenseStats.count,
           incomeCount: incomeStats.count,
+          paymentCount: paymentStats.count,
+          unpaidInvoiceCount: unpaidInvoices.length,
           totalExpenses: totalExpenses,
           totalIncome: totalIncome,
+          totalPayments: totalPayments,
+          totalUnpaidBalance: totalUnpaidBalance,
           netAmount: netAmount,
           period: periodString
         }
@@ -217,25 +287,36 @@ class HOAInformAutomation {
   private generateEmailText(
     expenseStats: ExpenseStats,
     incomeStats: InvoiceStats,
+    paymentStats: PaymentStats,
     totalExpenses: number,
     totalIncome: number,
+    totalPayments: number,
+    totalUnpaidBalance: number,
     netAmount: number,
     period: string
   ): string {
     return `
 HOA Financial Report - ${period}
 
-INCOME SUMMARY:
-- Total Invoices: ${incomeStats.count}
-- Total Income: $${totalIncome.toFixed(2)}
+INVOICE SUMMARY:
+- Total Invoices Issued: ${incomeStats.count}
+- Total Invoiced Amount: $${totalIncome.toFixed(2)}
 - Average Invoice: $${incomeStats.average.toFixed(2)}
+
+PAYMENT SUMMARY (ACTUAL INCOME):
+- Total Payments Received: ${paymentStats.count}
+- Total Amount Received: $${totalPayments.toFixed(2)}
+- Average Payment: $${paymentStats.average.toFixed(2)}
+
+OUTSTANDING BALANCES:
+- Total Unpaid/Partially Paid: $${totalUnpaidBalance.toFixed(2)}
 
 EXPENSE SUMMARY:
 - Total Expenses: ${expenseStats.count}
 - Total Amount: $${totalExpenses.toFixed(2)}
 - Average Expense: $${expenseStats.average.toFixed(2)}
 
-NET RESULT:
+NET RESULT (Payments Received - Expenses):
 - Net Amount: $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}
 
 Please find the detailed financial report attached as a PDF.
@@ -250,18 +331,32 @@ This report was automatically generated by the HOA Financial Reporting System.
   private generateEmailHtml(
     expenseStats: ExpenseStats,
     incomeStats: InvoiceStats,
+    paymentStats: PaymentStats,
     totalExpenses: number,
     totalIncome: number,
+    totalPayments: number,
+    totalUnpaidBalance: number,
     netAmount: number,
     period: string,
     byCategory: Record<string, GroupedExpenses>,
-    byClient: Record<string, GroupedInvoices>
+    byClient: Record<string, GroupedInvoices>,
+    paymentsByClient: Record<string, GroupedPayments>,
+    unpaidInvoices: Invoice[]
   ): string {
     const clientRows = Object.entries(byClient)
       .map(([client, data]) => `
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #ddd;">${client}</td>
           <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${data.invoices.length}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #27ae60;">$${data.total.toFixed(2)}</td>
+        </tr>
+      `).join('');
+
+    const paymentClientRows = Object.entries(paymentsByClient)
+      .map(([client, data]) => `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd;">${client}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${data.payments.length}</td>
           <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #27ae60;">$${data.total.toFixed(2)}</td>
         </tr>
       `).join('');
@@ -274,6 +369,20 @@ This report was automatically generated by the HOA Financial Reporting System.
           <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #e74c3c;">$${data.total.toFixed(2)}</td>
         </tr>
       `).join('');
+
+    const unpaidRows = unpaidInvoices.slice(0, MAX_UNPAID_INVOICES_IN_EMAIL) // Show top unpaid in email
+      .map((invoice) => {
+        const balance = parseFloat(String(invoice.balance || 0));
+        const client = invoice.client_name || invoice.client?.name || 'Unknown';
+        const number = invoice.number || '-';
+        return `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd;">${number}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd;">${client}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #e67e22;">$${balance.toFixed(2)}</td>
+        </tr>
+      `;
+      }).join('');
 
     return `
 <!DOCTYPE html>
@@ -289,7 +398,9 @@ This report was automatically generated by the HOA Financial Reporting System.
     .summary-item { margin: 8px 0; }
     .net-result { font-size: 18px; font-weight: bold; padding: 15px; background-color: ${netAmount >= 0 ? '#d5f4e6' : '#fadbd8'}; border-radius: 5px; margin-top: 15px; }
     .income-color { color: #27ae60; }
+    .payment-color { color: #3498db; }
     .expense-color { color: #e74c3c; }
+    .unpaid-color { color: #e67e22; }
     table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     th { background-color: #34495e; color: white; padding: 10px; text-align: left; }
     .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #7f8c8d; font-size: 12px; }
@@ -302,10 +413,23 @@ This report was automatically generated by the HOA Financial Reporting System.
     
     <div class="summary">
       <div class="summary-section">
-        <h3 class="income-color">Income Summary</h3>
+        <h3 class="income-color">Invoices Issued</h3>
         <div class="summary-item"><strong>Total Invoices:</strong> ${incomeStats.count}</div>
-        <div class="summary-item"><strong>Total Income:</strong> <span class="income-color">$${totalIncome.toFixed(2)}</span></div>
+        <div class="summary-item"><strong>Total Invoiced:</strong> <span class="income-color">$${totalIncome.toFixed(2)}</span></div>
         <div class="summary-item"><strong>Average Invoice:</strong> $${incomeStats.average.toFixed(2)}</div>
+      </div>
+
+      <div class="summary-section">
+        <h3 class="payment-color">Payments Received (Actual Income)</h3>
+        <div class="summary-item"><strong>Total Payments:</strong> ${paymentStats.count}</div>
+        <div class="summary-item"><strong>Total Received:</strong> <span class="payment-color">$${totalPayments.toFixed(2)}</span></div>
+        <div class="summary-item"><strong>Average Payment:</strong> $${paymentStats.average.toFixed(2)}</div>
+      </div>
+
+      <div class="summary-section">
+        <h3 class="unpaid-color">Outstanding Balances</h3>
+        <div class="summary-item"><strong>Unpaid/Partially Paid Invoices:</strong> ${unpaidInvoices.length}</div>
+        <div class="summary-item"><strong>Total Outstanding:</strong> <span class="unpaid-color">$${totalUnpaidBalance.toFixed(2)}</span></div>
       </div>
 
       <div class="summary-section">
@@ -316,12 +440,12 @@ This report was automatically generated by the HOA Financial Reporting System.
       </div>
 
       <div class="net-result">
-        <strong>Net Amount:</strong> $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}
+        <strong>Net Amount (Payments - Expenses):</strong> $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}
       </div>
     </div>
 
     ${Object.keys(byClient).length > 0 ? `
-    <h2>Income by Client</h2>
+    <h2>Invoices Issued by Client</h2>
     <table>
       <thead>
         <tr>
@@ -334,6 +458,39 @@ This report was automatically generated by the HOA Financial Reporting System.
         ${clientRows}
       </tbody>
     </table>
+    ` : ''}
+
+    ${Object.keys(paymentsByClient).length > 0 ? `
+    <h2>Payments Received by Client</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th style="text-align: right;">Count</th>
+          <th style="text-align: right;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${paymentClientRows}
+      </tbody>
+    </table>
+    ` : ''}
+
+    ${unpaidInvoices.length > 0 ? `
+    <h2>Outstanding Invoices (Unpaid/Partially Paid)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice #</th>
+          <th>Client</th>
+          <th style="text-align: right;">Balance Due</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${unpaidRows}
+      </tbody>
+    </table>
+    ${unpaidInvoices.length > MAX_UNPAID_INVOICES_IN_EMAIL ? `<p><em>Showing top ${MAX_UNPAID_INVOICES_IN_EMAIL} of ${unpaidInvoices.length} unpaid invoices. See PDF for complete list.</em></p>` : ''}
     ` : ''}
 
     ${Object.keys(byCategory).length > 0 ? `
@@ -430,16 +587,26 @@ This report was automatically generated by the HOA Financial Reporting System.
         start_date: dateRange.startISO,
         end_date: dateRange.endISO
       });
+      const allPayments = await this.invoiceNinja.getPayments({
+        start_date: dateRange.startISO,
+        end_date: dateRange.endISO
+      });
+      const allInvoicesEver = await this.invoiceNinja.getInvoices({});
+      const unpaidInvoices = getUnpaidInvoices(allInvoicesEver);
       console.log(`   Total expenses fetched for period: ${allExpenses.length}`);
       console.log(`   Total invoices fetched for period: ${allInvoices.length}`);
+      console.log(`   Total payments fetched for period: ${allPayments.length}`);
+      console.log(`   Total unpaid/partially paid invoices: ${unpaidInvoices.length}`);
 
       // Step 3: Filter by date range (additional client-side filtering for safety)
       const filteredExpenses = filterExpensesByDate(allExpenses, dateRange.start, dateRange.end);
       const filteredInvoices = filterInvoicesByDate(allInvoices, dateRange.start, dateRange.end);
+      const filteredPayments = filterPaymentsByDate(allPayments, dateRange.start, dateRange.end);
       console.log(`   Expenses after filtering: ${filteredExpenses.length}`);
-      console.log(`   Invoices after filtering: ${filteredInvoices.length}\n`);
+      console.log(`   Invoices after filtering: ${filteredInvoices.length}`);
+      console.log(`   Payments after filtering: ${filteredPayments.length}\n`);
 
-      if (filteredExpenses.length === 0 && filteredInvoices.length === 0) {
+      if (filteredExpenses.length === 0 && filteredInvoices.length === 0 && filteredPayments.length === 0) {
         console.log('⚠️  No financial records found for the selected period.\n');
         return {
           success: false,
@@ -450,40 +617,78 @@ This report was automatically generated by the HOA Financial Reporting System.
       // Step 4: Sort by date
       const sortedExpenses = sortByDate(filteredExpenses, 'asc');
       const sortedInvoices = sortInvoicesByDate(filteredInvoices, 'asc');
+      const sortedPayments = sortPaymentsByDate(filteredPayments, 'asc');
 
       // Step 5: Calculate statistics
       const expenseStats = getExpenseStats(sortedExpenses);
       const incomeStats = getInvoiceStats(sortedInvoices);
+      const paymentStats = getPaymentStats(sortedPayments);
       const totalExpenses = calculateTotal(sortedExpenses);
       const totalIncome = calculateInvoiceTotal(sortedInvoices);
-      const netAmount = totalIncome - totalExpenses;
+      const totalPayments = calculatePaymentTotal(sortedPayments);
+      const totalUnpaidBalance = unpaidInvoices.reduce((sum, inv) => sum + parseFloat(String(inv.balance || 0)), 0);
+      const netAmount = totalPayments - totalExpenses;
       
       console.log('📊 FINANCIAL STATISTICS:');
-      console.log('   INCOME:');
+      console.log('   INVOICES ISSUED:');
       console.log(`      Total Invoices: ${incomeStats.count}`);
-      console.log(`      Total Income: $${totalIncome.toFixed(2)}`);
+      console.log(`      Total Invoiced: $${totalIncome.toFixed(2)}`);
       console.log(`      Average Invoice: $${incomeStats.average.toFixed(2)}`);
+      console.log('');
+      console.log('   PAYMENTS RECEIVED (ACTUAL INCOME):');
+      console.log(`      Total Payments: ${paymentStats.count}`);
+      console.log(`      Total Received: $${totalPayments.toFixed(2)}`);
+      console.log(`      Average Payment: $${paymentStats.average.toFixed(2)}`);
+      console.log('');
+      console.log('   OUTSTANDING BALANCES:');
+      console.log(`      Unpaid/Partially Paid Invoices: ${unpaidInvoices.length}`);
+      console.log(`      Total Outstanding: $${totalUnpaidBalance.toFixed(2)}`);
       console.log('');
       console.log('   EXPENSES:');
       console.log(`      Total Expenses: ${expenseStats.count}`);
       console.log(`      Total Amount: $${totalExpenses.toFixed(2)}`);
       console.log(`      Average Expense: $${expenseStats.average.toFixed(2)}`);
       console.log('');
-      console.log('   NET RESULT:');
+      console.log('   NET RESULT (Payments - Expenses):');
       console.log(`      Net Amount: $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}\n`);
 
       // Step 6: Group data for analysis
       const byCategory = groupByCategory(sortedExpenses);
       const byVendor = groupByVendor(sortedExpenses);
       const byClient = groupByClient(sortedInvoices);
+      const paymentsByClient = groupPaymentsByClient(sortedPayments);
       
       if (Object.keys(byClient).length > 0) {
-        console.log('📋 INCOME BY CLIENT:');
+        console.log('📋 INVOICES ISSUED BY CLIENT:');
         Object.entries(byClient).forEach(([client, data]) => {
           console.log(`   ${client}:`);
           console.log(`      Count: ${data.invoices.length}`);
           console.log(`      Total: $${data.total.toFixed(2)}`);
         });
+        console.log('');
+      }
+
+      if (Object.keys(paymentsByClient).length > 0) {
+        console.log('💵 PAYMENTS RECEIVED BY CLIENT:');
+        Object.entries(paymentsByClient).forEach(([client, data]) => {
+          console.log(`   ${client}:`);
+          console.log(`      Count: ${data.payments.length}`);
+          console.log(`      Total: $${data.total.toFixed(2)}`);
+        });
+        console.log('');
+      }
+
+      if (unpaidInvoices.length > 0) {
+        console.log('⚠️  OUTSTANDING INVOICES (TOP 10):');
+        unpaidInvoices.slice(0, MAX_UNPAID_INVOICES_IN_EMAIL).forEach((invoice) => {
+          const balance = parseFloat(String(invoice.balance || 0));
+          const client = invoice.client_name || invoice.client?.name || 'Unknown';
+          const number = invoice.number || '-';
+          console.log(`   Invoice #${number} - ${client}: $${balance.toFixed(2)}`);
+        });
+        if (unpaidInvoices.length > MAX_UNPAID_INVOICES_IN_EMAIL) {
+          console.log(`   ... and ${unpaidInvoices.length - MAX_UNPAID_INVOICES_IN_EMAIL} more`);
+        }
         console.log('');
       }
 
@@ -508,7 +713,7 @@ This report was automatically generated by the HOA Financial Reporting System.
       }
 
       if (sortedInvoices.length > 0) {
-        console.log('💰 INCOME DETAILS:');
+        console.log('💰 INVOICE DETAILS:');
         sortedInvoices.forEach((invoice, index) => {
           const invoiceDate = format(new Date(invoice.date || invoice.invoice_date || ''), 'yyyy-MM-dd');
           const description = invoice.public_notes || '-';
@@ -518,6 +723,19 @@ This report was automatically generated by the HOA Financial Reporting System.
           console.log(`   ${index + 1}. [${invoiceDate}] Invoice #${number}`);
           console.log(`      Client: ${client} | Amount: $${amount}`);
           if (description !== '-') console.log(`      Description: ${description}`);
+        });
+        console.log('');
+      }
+
+      if (sortedPayments.length > 0) {
+        console.log('💵 PAYMENT DETAILS:');
+        sortedPayments.forEach((payment, index) => {
+          const paymentDate = format(new Date(payment.date || payment.payment_date || ''), 'yyyy-MM-dd');
+          const client = payment.client_name || payment.client?.name || '-';
+          const amount = parseFloat(String(payment.amount || 0)).toFixed(2);
+          const reference = payment.transaction_reference || '-';
+          console.log(`   ${index + 1}. [${paymentDate}] Payment from ${client}`);
+          console.log(`      Amount: $${amount} | Reference: ${reference}`);
         });
         console.log('');
       }
@@ -544,10 +762,14 @@ This report was automatically generated by the HOA Financial Reporting System.
       const pdfBuffer = await this.pdfGenerator.generateFinancialReport({
         expenses: sortedExpenses,
         invoices: sortedInvoices,
+        payments: sortedPayments,
+        unpaidInvoices: unpaidInvoices,
         title: reportTitle,
         period: periodString,
         totalExpenses: totalExpenses,
         totalIncome: totalIncome,
+        totalPayments: totalPayments,
+        totalUnpaidBalance: totalUnpaidBalance,
         netAmount: netAmount,
         generatedDate: new Date()
       });
@@ -569,8 +791,12 @@ This report was automatically generated by the HOA Financial Reporting System.
         stats: {
           expenseCount: expenseStats.count,
           incomeCount: incomeStats.count,
+          paymentCount: paymentStats.count,
+          unpaidInvoiceCount: unpaidInvoices.length,
           totalExpenses: totalExpenses,
           totalIncome: totalIncome,
+          totalPayments: totalPayments,
+          totalUnpaidBalance: totalUnpaidBalance,
           netAmount: netAmount,
           period: periodString
         }
@@ -605,7 +831,9 @@ async function main(): Promise<void> {
       if (result.stats) {
         console.log('Report Summary:');
         console.log(`  Period: ${result.stats.period}`);
-        console.log(`  Income: ${result.stats.incomeCount} invoices, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Invoices: ${result.stats.incomeCount} issued, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Payments: ${result.stats.paymentCount} received, $${result.stats.totalPayments.toFixed(2)}`);
+        console.log(`  Outstanding: ${result.stats.unpaidInvoiceCount} invoices, $${result.stats.totalUnpaidBalance.toFixed(2)}`);
         console.log(`  Expenses: ${result.stats.expenseCount} items, $${result.stats.totalExpenses.toFixed(2)}`);
         console.log(`  Net: $${result.stats.netAmount.toFixed(2)} ${result.stats.netAmount >= 0 ? '(Surplus)' : '(Deficit)'}`);
       }
@@ -619,7 +847,9 @@ async function main(): Promise<void> {
       if (result.stats) {
         console.log('\n✓ Report generation completed successfully!');
         console.log(`  Period: ${result.stats.period}`);
-        console.log(`  Income: ${result.stats.incomeCount} invoices, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Invoices: ${result.stats.incomeCount} issued, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Payments: ${result.stats.paymentCount} received, $${result.stats.totalPayments.toFixed(2)}`);
+        console.log(`  Outstanding: ${result.stats.unpaidInvoiceCount} invoices, $${result.stats.totalUnpaidBalance.toFixed(2)}`);
         console.log(`  Expenses: ${result.stats.expenseCount} items, $${result.stats.totalExpenses.toFixed(2)}`);
         console.log(`  Net: $${result.stats.netAmount.toFixed(2)} ${result.stats.netAmount >= 0 ? '(Surplus)' : '(Deficit)'}`);
       }
