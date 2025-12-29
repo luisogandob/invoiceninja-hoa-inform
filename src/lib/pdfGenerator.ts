@@ -1,7 +1,7 @@
 import jsreport from '@jsreport/jsreport-core';
 import chromePdf from '@jsreport/jsreport-chrome-pdf';
 import { format } from 'date-fns';
-import type { Expense, Invoice } from './invoiceNinjaClient.js';
+import type { Expense, Invoice, Payment } from './invoiceNinjaClient.js';
 
 /**
  * Report data structure for financial reports (incomes and expenses)
@@ -9,10 +9,14 @@ import type { Expense, Invoice } from './invoiceNinjaClient.js';
 export interface ReportData {
   expenses: Expense[];
   invoices: Invoice[];
+  payments?: Payment[];
+  unpaidInvoices?: Invoice[];
   title: string;
   period: string;
   totalExpenses: number;
   totalIncome: number;
+  totalPayments?: number;
+  totalUnpaidBalance?: number;
   netAmount: number;
   generatedDate: Date;
 }
@@ -52,9 +56,35 @@ class PDFGenerator {
   async generateFinancialReport(reportData: ReportData): Promise<Buffer> {
     await this.init();
 
-    const { expenses, invoices, title, period, totalExpenses, totalIncome, netAmount, generatedDate } = reportData;
+    const { 
+      expenses, 
+      invoices, 
+      payments = [],
+      unpaidInvoices = [],
+      title, 
+      period, 
+      totalExpenses, 
+      totalIncome, 
+      totalPayments = 0,
+      totalUnpaidBalance = 0,
+      netAmount, 
+      generatedDate 
+    } = reportData;
 
-    const htmlTemplate = this.createHTMLTemplate(expenses, invoices, title, period, totalExpenses, totalIncome, netAmount, generatedDate);
+    const htmlTemplate = this.createHTMLTemplate(
+      expenses, 
+      invoices, 
+      payments,
+      unpaidInvoices,
+      title, 
+      period, 
+      totalExpenses, 
+      totalIncome, 
+      totalPayments,
+      totalUnpaidBalance,
+      netAmount, 
+      generatedDate
+    );
 
     try {
       const result = await this.jsreport.render({
@@ -92,10 +122,14 @@ class PDFGenerator {
   private createHTMLTemplate(
     expenses: Expense[],
     invoices: Invoice[],
+    payments: Payment[],
+    unpaidInvoices: Invoice[],
     title: string,
     period: string,
     totalExpenses: number,
     totalIncome: number,
+    totalPayments: number,
+    totalUnpaidBalance: number,
     netAmount: number,
     generatedDate: Date
   ): string {
@@ -114,6 +148,44 @@ class PDFGenerator {
         <td>${this.escapeHtml(invoice.client_name || invoice.client?.name || '-')}</td>
         <td>${this.escapeHtml(invoice.public_notes || '-')}</td>
         <td style="text-align: right;">$${this.formatAmount(invoice.amount)}</td>
+      </tr>
+    `;
+    }).join('');
+
+    const paymentRows = payments.map(payment => {
+      const dateStr = payment.date || payment.payment_date || new Date().toISOString();
+      let formattedDate = 'N/A';
+      try {
+        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
+      } catch {
+        formattedDate = format(new Date(), 'yyyy-MM-dd');
+      }
+      return `
+      <tr>
+        <td>${formattedDate}</td>
+        <td>${this.escapeHtml(payment.client_name || payment.client?.name || '-')}</td>
+        <td>${this.escapeHtml(payment.transaction_reference || '-')}</td>
+        <td style="text-align: right;">$${this.formatAmount(payment.amount)}</td>
+      </tr>
+    `;
+    }).join('');
+
+    const unpaidRows = unpaidInvoices.slice(0, 20).map(invoice => {
+      const dateStr = invoice.date || invoice.invoice_date || new Date().toISOString();
+      let formattedDate = 'N/A';
+      try {
+        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
+      } catch {
+        formattedDate = format(new Date(), 'yyyy-MM-dd');
+      }
+      const balance = parseFloat(String(invoice.balance || 0));
+      return `
+      <tr>
+        <td>${formattedDate}</td>
+        <td>${this.escapeHtml(invoice.number || '-')}</td>
+        <td>${this.escapeHtml(invoice.client_name || invoice.client?.name || '-')}</td>
+        <td style="text-align: right;">$${this.formatAmount(invoice.amount)}</td>
+        <td style="text-align: right; color: #e67e22; font-weight: bold;">$${balance.toFixed(2)}</td>
       </tr>
     `;
     }).join('');
@@ -200,6 +272,12 @@ class PDFGenerator {
     .income-color {
       color: #27ae60;
     }
+    .payment-color {
+      color: #3498db;
+    }
+    .unpaid-color {
+      color: #e67e22;
+    }
     .expense-color {
       color: #e74c3c;
     }
@@ -220,6 +298,12 @@ class PDFGenerator {
     }
     th.income-header {
       background-color: #27ae60;
+    }
+    th.payment-header {
+      background-color: #3498db;
+    }
+    th.unpaid-header {
+      background-color: #e67e22;
     }
     th.expense-header {
       background-color: #e74c3c;
@@ -258,20 +342,28 @@ class PDFGenerator {
 
   <div class="summary">
     <div class="summary-row">
-      <span>Total Income:</span>
+      <span>Total Invoiced:</span>
       <span class="income-color">$${this.formatAmount(totalIncome)}</span>
+    </div>
+    <div class="summary-row">
+      <span>Total Payments Received:</span>
+      <span class="payment-color">$${this.formatAmount(totalPayments)}</span>
+    </div>
+    <div class="summary-row">
+      <span>Total Outstanding Balance:</span>
+      <span class="unpaid-color">$${this.formatAmount(totalUnpaidBalance)}</span>
     </div>
     <div class="summary-row">
       <span>Total Expenses:</span>
       <span class="expense-color">$${this.formatAmount(totalExpenses)}</span>
     </div>
     <div class="summary-row net">
-      <span>Net Amount:</span>
+      <span>Net Amount (Payments - Expenses):</span>
       <span style="color: ${netAmount >= 0 ? '#27ae60' : '#e74c3c'};">$${this.formatAmount(netAmount)}</span>
     </div>
   </div>
 
-  <h2>Income</h2>
+  <h2>Invoices Issued</h2>
   <table>
     <thead>
       <tr>
@@ -283,15 +375,59 @@ class PDFGenerator {
       </tr>
     </thead>
     <tbody>
-      ${invoices.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No income records for this period</td></tr>' : incomeRows}
+      ${invoices.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No invoices issued in this period</td></tr>' : incomeRows}
       ${invoices.length > 0 ? `
       <tr class="total-row">
-        <td colspan="4" style="text-align: right;">TOTAL INCOME:</td>
+        <td colspan="4" style="text-align: right;">TOTAL INVOICED:</td>
         <td style="text-align: right;" class="income-color">$${this.formatAmount(totalIncome)}</td>
       </tr>
       ` : ''}
     </tbody>
   </table>
+
+  <h2>Payments Received</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="payment-header">Date</th>
+        <th class="payment-header">Client</th>
+        <th class="payment-header">Reference</th>
+        <th class="payment-header" style="text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${payments.length === 0 ? '<tr><td colspan="4" style="text-align: center; color: #95a5a6;">No payments received in this period</td></tr>' : paymentRows}
+      ${payments.length > 0 ? `
+      <tr class="total-row">
+        <td colspan="3" style="text-align: right;">TOTAL PAYMENTS RECEIVED:</td>
+        <td style="text-align: right;" class="payment-color">$${this.formatAmount(totalPayments)}</td>
+      </tr>
+      ` : ''}
+    </tbody>
+  </table>
+
+  ${unpaidInvoices.length > 0 ? `
+  <h2>Outstanding Invoices (Unpaid/Partially Paid)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="unpaid-header">Date</th>
+        <th class="unpaid-header">Invoice #</th>
+        <th class="unpaid-header">Client</th>
+        <th class="unpaid-header" style="text-align: right;">Total</th>
+        <th class="unpaid-header" style="text-align: right;">Balance Due</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${unpaidRows}
+      <tr class="total-row">
+        <td colspan="4" style="text-align: right;">TOTAL OUTSTANDING:</td>
+        <td style="text-align: right;" class="unpaid-color">$${this.formatAmount(totalUnpaidBalance)}</td>
+      </tr>
+    </tbody>
+  </table>
+  ${unpaidInvoices.length > 20 ? `<p style="font-size: 11px; color: #95a5a6; margin-top: -20px;"><em>Showing top 20 of ${unpaidInvoices.length} unpaid invoices.</em></p>` : ''}
+  ` : ''}
 
   <h2>Expenses</h2>
   <table>

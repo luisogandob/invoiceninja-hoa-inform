@@ -9,7 +9,7 @@ import {
   parseISO,
   isWithinInterval
 } from 'date-fns';
-import type { Expense, Invoice } from './invoiceNinjaClient.js';
+import type { Expense, Invoice, Payment } from './invoiceNinjaClient.js';
 
 /**
  * Date range result
@@ -83,6 +83,25 @@ export interface InvoiceStats {
   average: number;
   min: number;
   max: number;
+}
+
+/**
+ * Payment statistics
+ */
+export interface PaymentStats {
+  count: number;
+  total: number;
+  average: number;
+  min: number;
+  max: number;
+}
+
+/**
+ * Grouped payments data
+ */
+export interface GroupedPayments {
+  payments: Payment[];
+  total: number;
 }
 
 /**
@@ -428,4 +447,110 @@ export function getInvoiceStats(invoices: Invoice[]): InvoiceStats {
     min: Math.min(...amounts),
     max: Math.max(...amounts)
   };
+}
+
+/**
+ * Filter payments by date range
+ */
+export function filterPaymentsByDate(payments: Payment[], startDate: Date, endDate: Date): Payment[] {
+  return payments.filter(payment => {
+    const dateStr = payment.date || payment.payment_date;
+    if (!dateStr) return false;
+    try {
+      const paymentDate = parseISO(dateStr);
+      return isWithinInterval(paymentDate, { start: startDate, end: endDate });
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
+ * Calculate total amount from payments
+ */
+export function calculatePaymentTotal(payments: Payment[]): number {
+  return payments.reduce((total, payment) => {
+    return total + parseFloat(String(payment.amount || 0));
+  }, 0);
+}
+
+/**
+ * Get payment statistics
+ */
+export function getPaymentStats(payments: Payment[]): PaymentStats {
+  if (payments.length === 0) {
+    return {
+      count: 0,
+      total: 0,
+      average: 0,
+      min: 0,
+      max: 0
+    };
+  }
+
+  const amounts = payments.map(p => parseFloat(String(p.amount || 0)));
+  const total = amounts.reduce((sum, amount) => sum + amount, 0);
+
+  return {
+    count: payments.length,
+    total: total,
+    average: total / payments.length,
+    min: Math.min(...amounts),
+    max: Math.max(...amounts)
+  };
+}
+
+/**
+ * Sort payments by date
+ */
+export function sortPaymentsByDate(payments: Payment[], order: SortOrder = 'desc'): Payment[] {
+  return [...payments].sort((a, b) => {
+    const dateStrA = a.date || a.payment_date || '1970-01-01';
+    const dateStrB = b.date || b.payment_date || '1970-01-01';
+    const dateA = parseISO(dateStrA);
+    const dateB = parseISO(dateStrB);
+    return order === 'asc' ? dateA.getTime() - dateB.getTime() : dateB.getTime() - dateA.getTime();
+  });
+}
+
+/**
+ * Group payments by client
+ */
+export function groupPaymentsByClient(payments: Payment[]): Record<string, GroupedPayments> {
+  const grouped: Record<string, GroupedPayments> = {};
+
+  payments.forEach(payment => {
+    const client = payment.client_name || payment.client?.name || 'Unknown Client';
+    if (!grouped[client]) {
+      grouped[client] = {
+        payments: [],
+        total: 0
+      };
+    }
+    grouped[client].payments.push(payment);
+    grouped[client].total += parseFloat(String(payment.amount || 0));
+  });
+
+  return grouped;
+}
+
+/**
+ * Get unpaid or partially paid invoices
+ * Invoices with balance > 0 are considered unpaid/partially paid
+ */
+export function getUnpaidInvoices(invoices: Invoice[]): Invoice[] {
+  return invoices.filter(invoice => {
+    const balance = parseFloat(String(invoice.balance || 0));
+    return balance > 0;
+  });
+}
+
+/**
+ * Get fully paid invoices
+ */
+export function getPaidInvoices(invoices: Invoice[]): Invoice[] {
+  return invoices.filter(invoice => {
+    const balance = parseFloat(String(invoice.balance || 0));
+    return balance === 0;
+  });
 }

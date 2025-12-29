@@ -84,6 +84,29 @@ export interface Invoice {
 }
 
 /**
+ * Payment interface (represents actual money received)
+ */
+export interface Payment {
+  id?: string;
+  amount: number;
+  date?: string;
+  payment_date?: string;
+  transaction_reference?: string;
+  invoices?: Array<{
+    invoice_id: string;
+    amount: number;
+  }>;
+  client_id?: string;
+  client_name?: string;
+  client?: {
+    name: string;
+  };
+  type_id?: string;
+  private_notes?: string;
+  invoice_number?: string;
+}
+
+/**
  * Filter parameters for expenses
  */
 export interface ExpenseFilters {
@@ -101,6 +124,17 @@ export interface InvoiceFilters {
   per_page?: number;
   page?: number;
   status?: string;
+  start_date?: string;  // Format: YYYY-MM-DD
+  end_date?: string;    // Format: YYYY-MM-DD
+  [key: string]: any;
+}
+
+/**
+ * Filter parameters for payments
+ */
+export interface PaymentFilters {
+  per_page?: number;
+  page?: number;
   start_date?: string;  // Format: YYYY-MM-DD
   end_date?: string;    // Format: YYYY-MM-DD
   [key: string]: any;
@@ -300,6 +334,31 @@ class InvoiceNinjaClient {
       return response.data.data;
     } catch (error) {
       console.error(`Error fetching invoice ${invoiceId}:`, (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all payments with optional filters and automatic pagination
+   */
+  async getPayments(filters: PaymentFilters = {}): Promise<Payment[]> {
+    try {
+      return await this.fetchAllPages<Payment>('/payments', filters);
+    } catch (error) {
+      console.error('Error fetching payments:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single payment by ID
+   */
+  async getPayment(paymentId: string): Promise<Payment> {
+    try {
+      const response = await this.client.get<ApiResponse<Payment>>(`/payments/${paymentId}`);
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error fetching payment ${paymentId}:`, (error as Error).message);
       throw error;
     }
   }
