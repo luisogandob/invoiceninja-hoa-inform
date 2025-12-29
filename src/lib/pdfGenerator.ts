@@ -1,5 +1,5 @@
-import jsreport from 'jsreport-core';
-import chromePdf from 'jsreport-chrome-pdf';
+import jsreport from '@jsreport/jsreport-core';
+import chromePdf from '@jsreport/jsreport-chrome-pdf';
 import { format } from 'date-fns';
 import type { Expense } from './invoiceNinjaClient.js';
 
