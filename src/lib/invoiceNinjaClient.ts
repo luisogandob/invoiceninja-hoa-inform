@@ -9,6 +9,15 @@ dotenv.config();
  */
 interface ApiResponse<T> {
   data: T;
+  meta?: {
+    pagination?: {
+      total: number;
+      count: number;
+      per_page: number;
+      current_page: number;
+      total_pages: number;
+    };
+  };
 }
 
 /**
@@ -80,6 +89,8 @@ export interface Invoice {
 export interface ExpenseFilters {
   per_page?: number;
   page?: number;
+  start_date?: string;  // Format: YYYY-MM-DD
+  end_date?: string;    // Format: YYYY-MM-DD
   [key: string]: any;
 }
 
@@ -90,6 +101,8 @@ export interface InvoiceFilters {
   per_page?: number;
   page?: number;
   status?: string;
+  start_date?: string;  // Format: YYYY-MM-DD
+  end_date?: string;    // Format: YYYY-MM-DD
   [key: string]: any;
 }
 
@@ -101,10 +114,12 @@ class InvoiceNinjaClient {
   private baseURL: string;
   private token: string;
   private client: AxiosInstance;
+  private perPage: number;
 
   constructor() {
     this.baseURL = process.env.INVOICE_NINJA_URL || '';
     this.token = process.env.INVOICE_NINJA_TOKEN || '';
+    this.perPage = parseInt(process.env.INVOICE_NINJA_PER_PAGE || '250', 10);
     
     if (!this.baseURL || !this.token) {
       throw new Error('Invoice Ninja configuration missing. Please set INVOICE_NINJA_URL and INVOICE_NINJA_TOKEN in .env file');
@@ -121,12 +136,55 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get all expenses with optional filters
+   * Generic pagination helper to fetch all pages of data from an endpoint
+   */
+  private async fetchAllPages<T>(
+    endpoint: string,
+    filters: Record<string, any> = {}
+  ): Promise<T[]> {
+    const allResults: T[] = [];
+    let currentPage = 1;
+    let hasMorePages = true;
+
+    // Set default per_page if not provided in filters
+    const perPage = filters.per_page || this.perPage;
+
+    while (hasMorePages) {
+      const params = {
+        ...filters,
+        per_page: perPage,
+        page: currentPage
+      };
+
+      const response = await this.client.get<ApiResponse<T[]>>(endpoint, { params });
+      const results = response.data.data || [];
+      
+      // If we got no results, we're done
+      if (results.length === 0) {
+        hasMorePages = false;
+        break;
+      }
+
+      allResults.push(...results);
+
+      // Check if there are more pages using pagination metadata
+      const pagination = response.data.meta?.pagination;
+      if (pagination && pagination.current_page < pagination.total_pages) {
+        currentPage++;
+      } else {
+        hasMorePages = false;
+      }
+    }
+
+    return allResults;
+  }
+
+  /**
+   * Get all expenses with optional filters and automatic pagination
    */
   async getExpenses(filters: ExpenseFilters = {}): Promise<Expense[]> {
     try {
-      const response = await this.client.get<ApiResponse<Expense[]>>('/expenses', { params: filters });
-      return response.data.data || [];
+      return await this.fetchAllPages<Expense>('/expenses', filters);
     } catch (error) {
       console.error('Error fetching expenses:', (error as Error).message);
       throw error;
@@ -147,12 +205,11 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get all clients
+   * Get all clients with automatic pagination
    */
   async getClients(): Promise<Client[]> {
     try {
-      const response = await this.client.get<ApiResponse<Client[]>>('/clients');
-      return response.data.data || [];
+      return await this.fetchAllPages<Client>('/clients');
     } catch (error) {
       console.error('Error fetching clients:', (error as Error).message);
       throw error;
@@ -160,12 +217,11 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get all vendors
+   * Get all vendors with automatic pagination
    */
   async getVendors(): Promise<Vendor[]> {
     try {
-      const response = await this.client.get<ApiResponse<Vendor[]>>('/vendors');
-      return response.data.data || [];
+      return await this.fetchAllPages<Vendor>('/vendors');
     } catch (error) {
       console.error('Error fetching vendors:', (error as Error).message);
       throw error;
@@ -173,12 +229,11 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get expense categories
+   * Get expense categories with automatic pagination
    */
   async getExpenseCategories(): Promise<ExpenseCategory[]> {
     try {
-      const response = await this.client.get<ApiResponse<ExpenseCategory[]>>('/expense_categories');
-      return response.data.data || [];
+      return await this.fetchAllPages<ExpenseCategory>('/expense_categories');
     } catch (error) {
       console.error('Error fetching expense categories:', (error as Error).message);
       throw error;
@@ -225,12 +280,11 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get all invoices with optional filters
+   * Get all invoices with optional filters and automatic pagination
    */
   async getInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
     try {
-      const response = await this.client.get<ApiResponse<Invoice[]>>('/invoices', { params: filters });
-      return response.data.data || [];
+      return await this.fetchAllPages<Invoice>('/invoices', filters);
     } catch (error) {
       console.error('Error fetching invoices:', (error as Error).message);
       throw error;
