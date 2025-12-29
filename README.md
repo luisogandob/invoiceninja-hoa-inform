@@ -112,6 +112,28 @@ Verify that the system can connect to Invoice Ninja and your email server:
 npm start test
 ```
 
+### Test Report Generation
+
+Generate and preview a report without sending it by email (useful for testing):
+
+```bash
+npm start test-inform
+```
+
+This command will:
+- Fetch expenses from Invoice Ninja
+- Display expense statistics and details on screen
+- Generate a PDF file (`expense-report-test.pdf`)
+- **Not send any email**
+
+You can also specify a period:
+
+```bash
+npm start test-inform last-month
+npm start test-inform current-year
+npm start test-inform last-year
+```
+
 ### Generate Reports
 
 Generate and send a report for the current month:
