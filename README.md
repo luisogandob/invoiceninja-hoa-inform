@@ -35,12 +35,39 @@ git clone https://github.com/luisogandob/invoiceninja-hoa-inform.git
 cd invoiceninja-hoa-inform
 ```
 
-2. Install dependencies:
+2. Set up environment for Puppeteer (required by jsreport-chrome-pdf):
+
+**What is PUPPETEER_SKIP_DOWNLOAD?**
+- Puppeteer is a library that controls headless Chrome
+- It normally downloads ~300MB of Chrome during `npm install`
+- This project uses system Chrome instead, so we skip the Puppeteer download
+- This saves time and disk space during installation
+
+**How to set it:**
+
+For a single install:
+```bash
+PUPPETEER_SKIP_DOWNLOAD=true npm install
+```
+
+Or set it permanently in your shell profile (`.bashrc`, `.zshrc`, etc.):
+```bash
+echo 'export PUPPETEER_SKIP_DOWNLOAD=true' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Or for Windows (PowerShell):
+```powershell
+$env:PUPPETEER_SKIP_DOWNLOAD = "true"
+npm install
+```
+
+3. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Configure environment variables:
+4. Configure environment variables:
 ```bash
 cp .env.example .env
 ```
@@ -266,6 +293,8 @@ Ensure the application has write permissions for PDF generation.
 - Use environment-specific credentials
 - Regularly rotate API tokens
 - Use app-specific passwords for email when possible
+
+**Note:** This project uses jsreport-core which has a transitive dependency on vm2, a deprecated package with known security vulnerabilities. See [SECURITY.md](SECURITY.md) for details and mitigation strategies. The vulnerability is not exploitable in this application's use case since no untrusted code is executed.
 
 ## License
 
