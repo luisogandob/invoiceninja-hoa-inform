@@ -472,9 +472,9 @@ async function main(): Promise<void> {
       }
     } else {
       console.log('Unknown command. Usage:');
-      console.log('  node dist/index.js test              - Test connections');
-      console.log('  node dist/index.js test-inform [period] - Test report (no email)');
-      console.log('  node dist/index.js report [period]   - Generate and send report');
+      console.log('  npm start test              - Test connections');
+      console.log('  npm start test-inform [period] - Test report (no email)');
+      console.log('  npm start report [period]   - Generate and send report');
       console.log('  Periods: current-month, last-month, current-year, last-year');
     }
   } catch (error) {
