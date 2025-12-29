@@ -145,8 +145,14 @@ export function getDateRange(period: PeriodType = 'current-month', customRange: 
  */
 export function filterExpensesByDate(expenses: Expense[], startDate: Date, endDate: Date): Expense[] {
   return expenses.filter(expense => {
-    const expenseDate = parseISO(expense.date || expense.expense_date || '');
-    return isWithinInterval(expenseDate, { start: startDate, end: endDate });
+    const dateStr = expense.date || expense.expense_date;
+    if (!dateStr) return false;
+    try {
+      const expenseDate = parseISO(dateStr);
+      return isWithinInterval(expenseDate, { start: startDate, end: endDate });
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -301,8 +307,14 @@ export function formatPeriodString(period: PeriodType, dateRange: DateRange): st
  */
 export function filterInvoicesByDate(invoices: Invoice[], startDate: Date, endDate: Date): Invoice[] {
   return invoices.filter(invoice => {
-    const invoiceDate = parseISO(invoice.date || invoice.invoice_date || '');
-    return isWithinInterval(invoiceDate, { start: startDate, end: endDate });
+    const dateStr = invoice.date || invoice.invoice_date;
+    if (!dateStr) return false;
+    try {
+      const invoiceDate = parseISO(dateStr);
+      return isWithinInterval(invoiceDate, { start: startDate, end: endDate });
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -343,19 +355,26 @@ export function groupInvoicesByMonth(invoices: Invoice[]): Record<string, Monthl
   const grouped: Record<string, MonthlyGroupedInvoices> = {};
 
   invoices.forEach(invoice => {
-    const invoiceDate = parseISO(invoice.date || invoice.invoice_date || '');
-    const monthKey = format(invoiceDate, 'yyyy-MM');
-    const monthLabel = format(invoiceDate, 'MMMM yyyy');
+    const dateStr = invoice.date || invoice.invoice_date;
+    if (!dateStr) return;
+    
+    try {
+      const invoiceDate = parseISO(dateStr);
+      const monthKey = format(invoiceDate, 'yyyy-MM');
+      const monthLabel = format(invoiceDate, 'MMMM yyyy');
 
-    if (!grouped[monthKey]) {
-      grouped[monthKey] = {
-        label: monthLabel,
-        invoices: [],
-        total: 0
-      };
+      if (!grouped[monthKey]) {
+        grouped[monthKey] = {
+          label: monthLabel,
+          invoices: [],
+          total: 0
+        };
+      }
+      grouped[monthKey].invoices.push(invoice);
+      grouped[monthKey].total += parseFloat(String(invoice.amount || 0));
+    } catch {
+      // Skip invoices with invalid dates
     }
-    grouped[monthKey].invoices.push(invoice);
-    grouped[monthKey].total += parseFloat(String(invoice.amount || 0));
   });
 
   return grouped;
@@ -366,8 +385,10 @@ export function groupInvoicesByMonth(invoices: Invoice[]): Record<string, Monthl
  */
 export function sortInvoicesByDate(invoices: Invoice[], order: SortOrder = 'desc'): Invoice[] {
   return [...invoices].sort((a, b) => {
-    const dateA = parseISO(a.date || a.invoice_date || '');
-    const dateB = parseISO(b.date || b.invoice_date || '');
+    const dateStrA = a.date || a.invoice_date || '1970-01-01';
+    const dateStrB = b.date || b.invoice_date || '1970-01-01';
+    const dateA = parseISO(dateStrA);
+    const dateB = parseISO(dateStrB);
     return order === 'asc' ? dateA.getTime() - dateB.getTime() : dateB.getTime() - dateA.getTime();
   });
 }

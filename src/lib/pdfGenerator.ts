@@ -99,25 +99,31 @@ class PDFGenerator {
     netAmount: number,
     generatedDate: Date
   ): string {
-    const incomeRows = invoices.map(invoice => `
+    const incomeRows = invoices.map(invoice => {
+      const dateStr = invoice.date || invoice.invoice_date || new Date().toISOString();
+      return `
       <tr>
-        <td>${format(new Date(invoice.date || invoice.invoice_date || ''), 'yyyy-MM-dd')}</td>
+        <td>${format(new Date(dateStr), 'yyyy-MM-dd')}</td>
         <td>${this.escapeHtml(invoice.number || '-')}</td>
         <td>${this.escapeHtml(invoice.client_name || invoice.client?.name || '-')}</td>
         <td>${this.escapeHtml(invoice.public_notes || '-')}</td>
         <td style="text-align: right;">$${this.formatAmount(invoice.amount)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
-    const expenseRows = expenses.map(expense => `
+    const expenseRows = expenses.map(expense => {
+      const dateStr = expense.date || expense.expense_date || new Date().toISOString();
+      return `
       <tr>
-        <td>${format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd')}</td>
+        <td>${format(new Date(dateStr), 'yyyy-MM-dd')}</td>
         <td>${this.escapeHtml(expense.public_notes || expense.description || '-')}</td>
         <td>${this.escapeHtml(expense.vendor_name || expense.vendor?.name || '-')}</td>
         <td>${this.escapeHtml(expense.category_name || expense.category?.name || '-')}</td>
         <td style="text-align: right;">$${this.formatAmount(expense.amount)}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     return `
 <!DOCTYPE html>
@@ -265,7 +271,7 @@ class PDFGenerator {
       </tr>
     </thead>
     <tbody>
-      ${incomeRows || '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No income records for this period</td></tr>'}
+      ${invoices.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No income records for this period</td></tr>' : incomeRows}
       ${invoices.length > 0 ? `
       <tr class="total-row">
         <td colspan="4" style="text-align: right;">TOTAL INCOME:</td>
@@ -287,7 +293,7 @@ class PDFGenerator {
       </tr>
     </thead>
     <tbody>
-      ${expenseRows || '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No expense records for this period</td></tr>'}
+      ${expenses.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No expense records for this period</td></tr>' : expenseRows}
       ${expenses.length > 0 ? `
       <tr class="total-row">
         <td colspan="4" style="text-align: right;">TOTAL EXPENSES:</td>
