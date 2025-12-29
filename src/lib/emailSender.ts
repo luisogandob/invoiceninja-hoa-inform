@@ -5,9 +5,9 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 /**
- * Email options for expense report
+ * Email options for financial report
  */
-export interface ExpenseReportEmailOptions {
+export interface FinancialReportEmailOptions {
   to?: string;
   subject: string;
   text: string;
@@ -27,7 +27,7 @@ export interface EmailResult {
 
 /**
  * Email Sender using Nodemailer
- * Handles sending expense reports via email
+ * Handles sending financial reports via email
  */
 class EmailSender {
   private transporter: Transporter | null = null;
@@ -67,9 +67,9 @@ class EmailSender {
   }
 
   /**
-   * Send expense report email with PDF attachment
+   * Send financial report email with PDF attachment
    */
-  async sendExpenseReport(options: ExpenseReportEmailOptions): Promise<EmailResult> {
+  async sendFinancialReport(options: FinancialReportEmailOptions): Promise<EmailResult> {
     this.init();
 
     const {
@@ -78,7 +78,7 @@ class EmailSender {
       text,
       html,
       pdfBuffer,
-      pdfFilename = 'expense-report.pdf'
+      pdfFilename = 'financial-report.pdf'
     } = options;
 
     if (!to) {

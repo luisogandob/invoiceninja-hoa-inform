@@ -2,16 +2,16 @@
 
 ## Overview
 
-The Invoice Ninja HOA Expense Automation system is a complete Business Intelligence and automation solution designed for Homeowners Associations using self-hosted Invoice Ninja instances.
+The Invoice Ninja HOA Financial Reporting system is a complete Business Intelligence and automation solution designed for Homeowners Associations using self-hosted Invoice Ninja instances. It handles both income (invoices) and expenses.
 
 ## Architecture Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     HOA Expense Automation                   │
+│                   HOA Financial Reporting                    │
 │                                                              │
 │  ┌────────────────┐      ┌──────────────────────────────┐  │
-│  │   src/index.js │──────│  Main Orchestrator           │  │
+│  │   src/index.ts │──────│  Main Orchestrator           │  │
 │  │                │      │  - Workflow coordination     │  │
 │  │                │      │  - CLI interface             │  │
 │  │                │      │  - Report generation         │  │
@@ -39,69 +39,73 @@ The Invoice Ninja HOA Expense Automation system is a complete Business Intellige
 
 ## Core Components
 
-### 1. Main Orchestrator (`src/index.js`)
+### 1. Main Orchestrator (`src/index.ts`)
 
 **Purpose**: Coordinates the entire workflow from data retrieval to report delivery.
 
 **Key Features**:
 - CLI interface with command parsing
-- Workflow orchestration
-- Report generation pipeline
+- Workflow orchestration for both income and expense data
+- Financial report generation pipeline
 - Email content generation (HTML and plain text)
 - Error handling and logging
 
 **Main Methods**:
-- `generateAndSendReport(options)` - Main workflow
+- `generateAndSendReport(options)` - Main workflow for income and expenses
 - `testConnections()` - Verify system connectivity
+- `testInform()` - Generate test report without sending email
 - `generateEmailText()` - Create plain text email
 - `generateEmailHtml()` - Create HTML email
 
-### 2. Invoice Ninja Client (`src/lib/invoiceNinjaClient.js`)
+### 2. Invoice Ninja Client (`src/lib/invoiceNinjaClient.ts`)
 
 **Purpose**: Interface with Invoice Ninja REST API.
 
 **Key Features**:
 - RESTful API communication
 - Authentication with API tokens
-- Comprehensive expense operations
+- Comprehensive expense and invoice operations
 - File upload support
 - Error handling and logging
 
 **API Methods**:
 - `getExpenses(filters)` - Retrieve expenses
 - `getExpense(id)` - Get single expense
+- `getInvoices(filters)` - Retrieve invoices (income)
+- `getInvoice(id)` - Get single invoice
 - `getClients()` - Retrieve clients
 - `getVendors()` - Retrieve vendors
 - `getExpenseCategories()` - Get categories
 - `createExpense(data)` - Create new expense
 - `uploadExpenseDocument()` - Upload attachments
 
-### 3. PDF Generator (`src/lib/pdfGenerator.js`)
+### 3. PDF Generator (`src/lib/pdfGenerator.ts`)
 
 **Purpose**: Generate professional PDF reports using JSReport.
 
 **Key Features**:
 - Chrome-based PDF rendering
 - Custom HTML templates
-- Responsive table design
+- Responsive table design for income and expenses
 - Automatic pagination
 - Header and footer support
-- Professional styling
+- Professional styling with color-coded sections
 
 **Main Methods**:
 - `init()` - Initialize JSReport
-- `generateExpenseReport(data)` - Create PDF report
+- `generateFinancialReport(data)` - Create PDF report with income and expenses
 - `createHTMLTemplate()` - Build HTML template
 - `close()` - Cleanup resources
 
 **Report Sections**:
 - Header with title and period
-- Summary information
-- Detailed expense table
+- Summary information (income, expenses, net amount)
+- Income table with invoice details
+- Expense table with expense details
 - Total calculations
 - Footer with generation info
 
-### 4. Email Sender (`src/lib/emailSender.js`)
+### 4. Email Sender (`src/lib/emailSender.ts`)
 
 **Purpose**: Send reports and notifications via SMTP.
 
@@ -114,13 +118,13 @@ The Invoice Ninja HOA Expense Automation system is a complete Business Intellige
 
 **Main Methods**:
 - `init()` - Setup SMTP transport
-- `sendExpenseReport(options)` - Send report with PDF
+- `sendFinancialReport(options)` - Send financial report with PDF
 - `sendNotification()` - Send simple messages
 - `verifyConnection()` - Test SMTP settings
 
-### 5. Data Utilities (`src/lib/dataUtils.js`)
+### 5. Data Utilities (`src/lib/dataUtils.ts`)
 
-**Purpose**: Data processing and date operations.
+**Purpose**: Data processing and date operations for both expenses and invoices.
 
 **Key Features**:
 - Date range calculations
@@ -136,18 +140,25 @@ The Invoice Ninja HOA Expense Automation system is a complete Business Intellige
 - `formatPeriodString()` - Format period labels
 
 **Filtering & Sorting**:
-- `filterExpensesByDate()` - Date-based filtering
-- `sortByDate()` - Sort chronologically
-- `sortByAmount()` - Sort by expense amount
+- `filterExpensesByDate()` - Date-based filtering for expenses
+- `filterInvoicesByDate()` - Date-based filtering for invoices
+- `sortByDate()` - Sort expenses chronologically
+- `sortInvoicesByDate()` - Sort invoices chronologically
+- `sortByAmount()` - Sort expenses by amount
+- `sortInvoicesByAmount()` - Sort invoices by amount
 
 **Grouping**:
-- `groupByCategory()` - Group by expense category
-- `groupByVendor()` - Group by vendor
-- `groupByMonth()` - Group by month
+- `groupByCategory()` - Group expenses by category
+- `groupByVendor()` - Group expenses by vendor
+- `groupByClient()` - Group invoices by client
+- `groupByMonth()` - Group expenses by month
+- `groupInvoicesByMonth()` - Group invoices by month
 
 **Analysis**:
-- `calculateTotal()` - Sum expenses
-- `getExpenseStats()` - Calculate statistics
+- `calculateTotal()` - Sum expense amounts
+- `calculateInvoiceTotal()` - Sum invoice amounts
+- `getExpenseStats()` - Calculate expense statistics
+- `getInvoiceStats()` - Calculate invoice statistics
 
 ## Data Flow
 
@@ -165,23 +176,26 @@ The Invoice Ninja HOA Expense Automation system is a complete Business Intellige
 3. Data Retrieval
    ├─ Connect to Invoice Ninja API
    ├─ Fetch all expenses
+   ├─ Fetch all invoices (income)
    └─ Apply date filters
    
 4. Data Processing
-   ├─ Sort expenses by date
-   ├─ Calculate statistics
-   ├─ Group by category/vendor
+   ├─ Sort expenses and invoices by date
+   ├─ Calculate statistics for both
+   ├─ Group by category/vendor/client
+   ├─ Calculate net amount (income - expenses)
    └─ Prepare report data
    
 5. PDF Generation
    ├─ Build HTML template
-   ├─ Populate with expense data
+   ├─ Populate with income and expense data
+   ├─ Add summary section with net result
    ├─ Render with Chrome PDF
    └─ Generate PDF buffer
    
 6. Email Composition
    ├─ Create email subject
-   ├─ Generate HTML body
+   ├─ Generate HTML body with financial summary
    ├─ Generate plain text body
    └─ Attach PDF report
    
@@ -234,7 +248,7 @@ EMAIL_FROM=sender@example.com
 EMAIL_TO=recipients@example.com
 
 # Report Settings
-REPORT_TITLE=HOA Expense Report
+REPORT_TITLE=HOA Financial Report
 REPORT_PERIOD=monthly
 ```
 

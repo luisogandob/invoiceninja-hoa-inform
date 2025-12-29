@@ -1,7 +1,7 @@
 {
-  "name": "invoiceninja-hoa-expense-automation",
+  "name": "invoiceninja-hoa-inform",
   "version": "1.0.0",
-  "description": "Business Intelligence and automation system for HOA using self-hosted Invoice Ninja",
+  "description": "Business Intelligence and automation system for HOA income and expense reporting using self-hosted Invoice Ninja",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,8 +14,9 @@
   "keywords": [
     "invoiceninja",
     "hoa",
-    "expense-automation",
-    "business-intelligence"
+    "income-expense-reporting",
+    "business-intelligence",
+    "financial-reporting"
   ],
   "author": "",
   "license": "MIT",

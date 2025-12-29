@@ -4,16 +4,21 @@ import { promises as fs } from 'fs';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import PDFGenerator from './lib/pdfGenerator.js';
 import EmailSender from './lib/emailSender.js';
-import type { Expense } from './lib/invoiceNinjaClient.js';
-import type { ExpenseStats, PeriodType, CustomRange, GroupedExpenses } from './lib/dataUtils.js';
+import type { Expense, Invoice } from './lib/invoiceNinjaClient.js';
+import type { ExpenseStats, InvoiceStats, PeriodType, CustomRange, GroupedExpenses, GroupedInvoices } from './lib/dataUtils.js';
 import {
   getDateRange,
   filterExpensesByDate,
+  filterInvoicesByDate,
   calculateTotal,
+  calculateInvoiceTotal,
   groupByCategory,
   groupByVendor,
+  groupByClient,
   sortByDate,
+  sortInvoicesByDate,
   getExpenseStats,
+  getInvoiceStats,
   formatPeriodString
 } from './lib/dataUtils.js';
 
@@ -38,9 +43,11 @@ export interface ReportResult {
   success: boolean;
   message: string;
   stats?: {
-    count: number;
-    total: number;
-    average: number;
+    expenseCount: number;
+    incomeCount: number;
+    totalExpenses: number;
+    totalIncome: number;
+    netAmount: number;
     period: string;
   };
 }
@@ -56,9 +63,9 @@ export interface ConnectionTestResult {
 
 /**
  * Main Application Class
- * Coordinates the expense automation workflow
+ * Coordinates the HOA financial reporting workflow (incomes and expenses)
  */
-class HOAExpenseAutomation {
+class HOAInformAutomation {
   private invoiceNinja: InvoiceNinjaClient;
   private pdfGenerator: PDFGenerator;
   private emailSender: EmailSender;
@@ -70,7 +77,7 @@ class HOAExpenseAutomation {
   }
 
   /**
-   * Generate and send expense report
+   * Generate and send financial report (incomes and expenses)
    */
   async generateAndSendReport(options: ReportOptions = {}): Promise<ReportResult> {
     const {
@@ -78,11 +85,11 @@ class HOAExpenseAutomation {
       customRange = null,
       emailTo = null,
       saveToFile = false,
-      outputPath = './expense-report.pdf'
+      outputPath = './financial-report.pdf'
     } = options;
 
     try {
-      console.log('Starting HOA Expense Report Generation...');
+      console.log('Starting HOA Financial Report Generation...');
       console.log(`Period: ${period}`);
 
       // Step 1: Get date range
@@ -94,61 +101,79 @@ class HOAExpenseAutomation {
       const allExpenses = await this.invoiceNinja.getExpenses();
       console.log(`Total expenses in system: ${allExpenses.length}`);
 
-      // Step 3: Filter expenses by date range
-      const filteredExpenses = filterExpensesByDate(allExpenses, dateRange.start, dateRange.end);
-      console.log(`Expenses in selected period: ${filteredExpenses.length}`);
+      // Step 3: Fetch invoices (income) from Invoice Ninja
+      console.log('Fetching invoices (income) from Invoice Ninja...');
+      const allInvoices = await this.invoiceNinja.getInvoices();
+      console.log(`Total invoices in system: ${allInvoices.length}`);
 
-      if (filteredExpenses.length === 0) {
-        console.log('No expenses found for the selected period.');
+      // Step 4: Filter by date range
+      const filteredExpenses = filterExpensesByDate(allExpenses, dateRange.start, dateRange.end);
+      const filteredInvoices = filterInvoicesByDate(allInvoices, dateRange.start, dateRange.end);
+      console.log(`Expenses in selected period: ${filteredExpenses.length}`);
+      console.log(`Invoices in selected period: ${filteredInvoices.length}`);
+
+      if (filteredExpenses.length === 0 && filteredInvoices.length === 0) {
+        console.log('No financial records found for the selected period.');
         return {
           success: false,
-          message: 'No expenses found for the selected period'
+          message: 'No financial records found for the selected period'
         };
       }
 
-      // Step 4: Sort expenses by date
+      // Step 5: Sort by date
       const sortedExpenses = sortByDate(filteredExpenses, 'asc');
+      const sortedInvoices = sortInvoicesByDate(filteredInvoices, 'asc');
 
-      // Step 5: Calculate statistics
-      const stats = getExpenseStats(sortedExpenses);
-      const totalAmount = calculateTotal(sortedExpenses);
-      console.log(`Total amount: $${totalAmount.toFixed(2)}`);
-      console.log(`Average expense: $${stats.average.toFixed(2)}`);
+      // Step 6: Calculate statistics
+      const expenseStats = getExpenseStats(sortedExpenses);
+      const incomeStats = getInvoiceStats(sortedInvoices);
+      const totalExpenses = calculateTotal(sortedExpenses);
+      const totalIncome = calculateInvoiceTotal(sortedInvoices);
+      const netAmount = totalIncome - totalExpenses;
+      
+      console.log(`Total Income: $${totalIncome.toFixed(2)}`);
+      console.log(`Total Expenses: $${totalExpenses.toFixed(2)}`);
+      console.log(`Net Amount: $${netAmount.toFixed(2)}`);
 
-      // Step 6: Group data for analysis
+      // Step 7: Group data for analysis
       const byCategory = groupByCategory(sortedExpenses);
       const byVendor = groupByVendor(sortedExpenses);
-      console.log(`Categories: ${Object.keys(byCategory).length}`);
+      const byClient = groupByClient(sortedInvoices);
+      console.log(`Expense Categories: ${Object.keys(byCategory).length}`);
       console.log(`Vendors: ${Object.keys(byVendor).length}`);
+      console.log(`Clients: ${Object.keys(byClient).length}`);
 
-      // Step 7: Generate PDF report
+      // Step 8: Generate PDF report
       console.log('Generating PDF report...');
-      const reportTitle = process.env.REPORT_TITLE || 'HOA Expense Report';
+      const reportTitle = process.env.REPORT_TITLE || 'HOA Financial Report';
       const periodString = formatPeriodString(period, dateRange);
 
-      const pdfBuffer = await this.pdfGenerator.generateExpenseReport({
+      const pdfBuffer = await this.pdfGenerator.generateFinancialReport({
         expenses: sortedExpenses,
+        invoices: sortedInvoices,
         title: reportTitle,
         period: periodString,
-        totalAmount: totalAmount,
+        totalExpenses: totalExpenses,
+        totalIncome: totalIncome,
+        netAmount: netAmount,
         generatedDate: new Date()
       });
       console.log('PDF generated successfully');
 
-      // Step 8: Save to file if requested
+      // Step 9: Save to file if requested
       if (saveToFile) {
         await fs.writeFile(outputPath, pdfBuffer);
         console.log(`PDF saved to: ${outputPath}`);
       }
 
-      // Step 9: Send email
+      // Step 10: Send email
       console.log('Sending email...');
       const emailSubject = `${reportTitle} - ${periodString}`;
-      const emailText = this.generateEmailText(stats, totalAmount, periodString);
-      const emailHtml = this.generateEmailHtml(stats, totalAmount, periodString, byCategory);
-      const pdfFilename = `expense-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      const emailText = this.generateEmailText(expenseStats, incomeStats, totalExpenses, totalIncome, netAmount, periodString);
+      const emailHtml = this.generateEmailHtml(expenseStats, incomeStats, totalExpenses, totalIncome, netAmount, periodString, byCategory, byClient);
+      const pdfFilename = `financial-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
 
-      await this.emailSender.sendExpenseReport({
+      await this.emailSender.sendFinancialReport({
         to: emailTo || undefined,
         subject: emailSubject,
         text: emailText,
@@ -158,16 +183,18 @@ class HOAExpenseAutomation {
       });
       console.log('Email sent successfully');
 
-      // Step 10: Cleanup
+      // Step 11: Cleanup
       await this.pdfGenerator.close();
 
       return {
         success: true,
         message: 'Report generated and sent successfully',
         stats: {
-          count: stats.count,
-          total: totalAmount,
-          average: stats.average,
+          expenseCount: expenseStats.count,
+          incomeCount: incomeStats.count,
+          totalExpenses: totalExpenses,
+          totalIncome: totalIncome,
+          netAmount: netAmount,
           period: periodString
         }
       };
@@ -181,20 +208,33 @@ class HOAExpenseAutomation {
   /**
    * Generate plain text email body
    */
-  private generateEmailText(stats: ExpenseStats, totalAmount: number, period: string): string {
+  private generateEmailText(
+    expenseStats: ExpenseStats,
+    incomeStats: InvoiceStats,
+    totalExpenses: number,
+    totalIncome: number,
+    netAmount: number,
+    period: string
+  ): string {
     return `
-HOA Expense Report - ${period}
+HOA Financial Report - ${period}
 
-Summary:
-- Total Expenses: ${stats.count}
-- Total Amount: $${totalAmount.toFixed(2)}
-- Average Expense: $${stats.average.toFixed(2)}
-- Min Expense: $${stats.min.toFixed(2)}
-- Max Expense: $${stats.max.toFixed(2)}
+INCOME SUMMARY:
+- Total Invoices: ${incomeStats.count}
+- Total Income: $${totalIncome.toFixed(2)}
+- Average Invoice: $${incomeStats.average.toFixed(2)}
 
-Please find the detailed expense report attached as a PDF.
+EXPENSE SUMMARY:
+- Total Expenses: ${expenseStats.count}
+- Total Amount: $${totalExpenses.toFixed(2)}
+- Average Expense: $${expenseStats.average.toFixed(2)}
 
-This report was automatically generated by the HOA Expense Automation System.
+NET RESULT:
+- Net Amount: $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}
+
+Please find the detailed financial report attached as a PDF.
+
+This report was automatically generated by the HOA Financial Reporting System.
     `.trim();
   }
 
@@ -202,17 +242,30 @@ This report was automatically generated by the HOA Expense Automation System.
    * Generate HTML email body
    */
   private generateEmailHtml(
-    stats: ExpenseStats,
-    totalAmount: number,
+    expenseStats: ExpenseStats,
+    incomeStats: InvoiceStats,
+    totalExpenses: number,
+    totalIncome: number,
+    netAmount: number,
     period: string,
-    byCategory: Record<string, GroupedExpenses>
+    byCategory: Record<string, GroupedExpenses>,
+    byClient: Record<string, GroupedInvoices>
   ): string {
+    const clientRows = Object.entries(byClient)
+      .map(([client, data]) => `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd;">${client}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${data.invoices.length}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #27ae60;">$${data.total.toFixed(2)}</td>
+        </tr>
+      `).join('');
+
     const categoryRows = Object.entries(byCategory)
       .map(([category, data]) => `
         <tr>
           <td style="padding: 8px; border-bottom: 1px solid #ddd;">${category}</td>
           <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">${data.expenses.length}</td>
-          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right;">$${data.total.toFixed(2)}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #ddd; text-align: right; color: #e74c3c;">$${data.total.toFixed(2)}</td>
         </tr>
       `).join('');
 
@@ -224,8 +277,13 @@ This report was automatically generated by the HOA Expense Automation System.
     body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
     h1 { color: #2c3e50; }
-    .summary { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; }
+    .summary { background-color: #ecf0f1; padding: 20px; border-radius: 5px; margin: 20px 0; }
+    .summary-section { margin-bottom: 20px; }
+    .summary-section h3 { margin-bottom: 10px; color: #34495e; }
     .summary-item { margin: 8px 0; }
+    .net-result { font-size: 18px; font-weight: bold; padding: 15px; background-color: ${netAmount >= 0 ? '#d5f4e6' : '#fadbd8'}; border-radius: 5px; margin-top: 15px; }
+    .income-color { color: #27ae60; }
+    .expense-color { color: #e74c3c; }
     table { width: 100%; border-collapse: collapse; margin: 20px 0; }
     th { background-color: #34495e; color: white; padding: 10px; text-align: left; }
     .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #7f8c8d; font-size: 12px; }
@@ -233,18 +291,46 @@ This report was automatically generated by the HOA Expense Automation System.
 </head>
 <body>
   <div class="container">
-    <h1>HOA Expense Report</h1>
+    <h1>HOA Financial Report</h1>
     <p><strong>Period:</strong> ${period}</p>
     
     <div class="summary">
-      <h2>Summary</h2>
-      <div class="summary-item"><strong>Total Expenses:</strong> ${stats.count}</div>
-      <div class="summary-item"><strong>Total Amount:</strong> $${totalAmount.toFixed(2)}</div>
-      <div class="summary-item"><strong>Average Expense:</strong> $${stats.average.toFixed(2)}</div>
-      <div class="summary-item"><strong>Min Expense:</strong> $${stats.min.toFixed(2)}</div>
-      <div class="summary-item"><strong>Max Expense:</strong> $${stats.max.toFixed(2)}</div>
+      <div class="summary-section">
+        <h3 class="income-color">Income Summary</h3>
+        <div class="summary-item"><strong>Total Invoices:</strong> ${incomeStats.count}</div>
+        <div class="summary-item"><strong>Total Income:</strong> <span class="income-color">$${totalIncome.toFixed(2)}</span></div>
+        <div class="summary-item"><strong>Average Invoice:</strong> $${incomeStats.average.toFixed(2)}</div>
+      </div>
+
+      <div class="summary-section">
+        <h3 class="expense-color">Expense Summary</h3>
+        <div class="summary-item"><strong>Total Expenses:</strong> ${expenseStats.count}</div>
+        <div class="summary-item"><strong>Total Amount:</strong> <span class="expense-color">$${totalExpenses.toFixed(2)}</span></div>
+        <div class="summary-item"><strong>Average Expense:</strong> $${expenseStats.average.toFixed(2)}</div>
+      </div>
+
+      <div class="net-result">
+        <strong>Net Amount:</strong> $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}
+      </div>
     </div>
 
+    ${Object.keys(byClient).length > 0 ? `
+    <h2>Income by Client</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th style="text-align: right;">Count</th>
+          <th style="text-align: right;">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${clientRows}
+      </tbody>
+    </table>
+    ` : ''}
+
+    ${Object.keys(byCategory).length > 0 ? `
     <h2>Expenses by Category</h2>
     <table>
       <thead>
@@ -258,11 +344,12 @@ This report was automatically generated by the HOA Expense Automation System.
         ${categoryRows}
       </tbody>
     </table>
+    ` : ''}
 
-    <p>Please find the detailed expense report attached as a PDF.</p>
+    <p>Please find the detailed financial report attached as a PDF.</p>
 
     <div class="footer">
-      <p>This report was automatically generated by the HOA Expense Automation System.</p>
+      <p>This report was automatically generated by the HOA Financial Reporting System.</p>
     </div>
   </div>
 </body>
@@ -313,12 +400,12 @@ This report was automatically generated by the HOA Expense Automation System.
     const {
       period = (process.env.REPORT_PERIOD as PeriodType) || 'current-month',
       customRange = null,
-      outputPath = './expense-report-test.pdf'
+      outputPath = './financial-report-test.pdf'
     } = options;
 
     try {
       console.log('═══════════════════════════════════════════════════════════');
-      console.log('TEST INFORM - Report Preview (No Email)');
+      console.log('TEST INFORM - Financial Report Preview (No Email)');
       console.log('═══════════════════════════════════════════════════════════\n');
 
       // Step 1: Get date range
@@ -327,79 +414,129 @@ This report was automatically generated by the HOA Expense Automation System.
       console.log(`   Period Type: ${period}`);
       console.log(`   Date Range: ${dateRange.startISO} to ${dateRange.endISO}\n`);
 
-      // Step 2: Fetch expenses from Invoice Ninja
-      console.log('🔄 Fetching expenses from Invoice Ninja...');
+      // Step 2: Fetch data from Invoice Ninja
+      console.log('🔄 Fetching data from Invoice Ninja...');
       const allExpenses = await this.invoiceNinja.getExpenses();
+      const allInvoices = await this.invoiceNinja.getInvoices();
       console.log(`   Total expenses in system: ${allExpenses.length}`);
+      console.log(`   Total invoices in system: ${allInvoices.length}`);
 
-      // Step 3: Filter expenses by date range
+      // Step 3: Filter by date range
       const filteredExpenses = filterExpensesByDate(allExpenses, dateRange.start, dateRange.end);
-      console.log(`   Expenses in selected period: ${filteredExpenses.length}\n`);
+      const filteredInvoices = filterInvoicesByDate(allInvoices, dateRange.start, dateRange.end);
+      console.log(`   Expenses in selected period: ${filteredExpenses.length}`);
+      console.log(`   Invoices in selected period: ${filteredInvoices.length}\n`);
 
-      if (filteredExpenses.length === 0) {
-        console.log('⚠️  No expenses found for the selected period.\n');
+      if (filteredExpenses.length === 0 && filteredInvoices.length === 0) {
+        console.log('⚠️  No financial records found for the selected period.\n');
         return {
           success: false,
-          message: 'No expenses found for the selected period'
+          message: 'No financial records found for the selected period'
         };
       }
 
-      // Step 4: Sort expenses by date
+      // Step 4: Sort by date
       const sortedExpenses = sortByDate(filteredExpenses, 'asc');
+      const sortedInvoices = sortInvoicesByDate(filteredInvoices, 'asc');
 
       // Step 5: Calculate statistics
-      const stats = getExpenseStats(sortedExpenses);
-      const totalAmount = calculateTotal(sortedExpenses);
+      const expenseStats = getExpenseStats(sortedExpenses);
+      const incomeStats = getInvoiceStats(sortedInvoices);
+      const totalExpenses = calculateTotal(sortedExpenses);
+      const totalIncome = calculateInvoiceTotal(sortedInvoices);
+      const netAmount = totalIncome - totalExpenses;
       
-      console.log('📊 EXPENSE STATISTICS:');
-      console.log(`   Total Expenses: ${stats.count}`);
-      console.log(`   Total Amount: $${totalAmount.toFixed(2)}`);
-      console.log(`   Average Expense: $${stats.average.toFixed(2)}`);
-      console.log(`   Min Expense: $${stats.min.toFixed(2)}`);
-      console.log(`   Max Expense: $${stats.max.toFixed(2)}\n`);
+      console.log('📊 FINANCIAL STATISTICS:');
+      console.log('   INCOME:');
+      console.log(`      Total Invoices: ${incomeStats.count}`);
+      console.log(`      Total Income: $${totalIncome.toFixed(2)}`);
+      console.log(`      Average Invoice: $${incomeStats.average.toFixed(2)}`);
+      console.log('');
+      console.log('   EXPENSES:');
+      console.log(`      Total Expenses: ${expenseStats.count}`);
+      console.log(`      Total Amount: $${totalExpenses.toFixed(2)}`);
+      console.log(`      Average Expense: $${expenseStats.average.toFixed(2)}`);
+      console.log('');
+      console.log('   NET RESULT:');
+      console.log(`      Net Amount: $${netAmount.toFixed(2)} ${netAmount >= 0 ? '(Surplus)' : '(Deficit)'}\n`);
 
       // Step 6: Group data for analysis
       const byCategory = groupByCategory(sortedExpenses);
       const byVendor = groupByVendor(sortedExpenses);
+      const byClient = groupByClient(sortedInvoices);
       
-      console.log('📋 EXPENSES BY CATEGORY:');
-      Object.entries(byCategory).forEach(([category, data]) => {
-        console.log(`   ${category}:`);
-        console.log(`      Count: ${data.expenses.length}`);
-        console.log(`      Total: $${data.total.toFixed(2)}`);
-      });
-      console.log('');
+      if (Object.keys(byClient).length > 0) {
+        console.log('📋 INCOME BY CLIENT:');
+        Object.entries(byClient).forEach(([client, data]) => {
+          console.log(`   ${client}:`);
+          console.log(`      Count: ${data.invoices.length}`);
+          console.log(`      Total: $${data.total.toFixed(2)}`);
+        });
+        console.log('');
+      }
 
-      console.log('🏢 EXPENSES BY VENDOR:');
-      Object.entries(byVendor).forEach(([vendor, data]) => {
-        console.log(`   ${vendor}:`);
-        console.log(`      Count: ${data.expenses.length}`);
-        console.log(`      Total: $${data.total.toFixed(2)}`);
-      });
-      console.log('');
+      if (Object.keys(byCategory).length > 0) {
+        console.log('📋 EXPENSES BY CATEGORY:');
+        Object.entries(byCategory).forEach(([category, data]) => {
+          console.log(`   ${category}:`);
+          console.log(`      Count: ${data.expenses.length}`);
+          console.log(`      Total: $${data.total.toFixed(2)}`);
+        });
+        console.log('');
+      }
 
-      console.log('📝 EXPENSE DETAILS:');
-      sortedExpenses.forEach((expense, index) => {
-        const expenseDate = format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd');
-        const description = expense.public_notes || expense.description || '-';
-        const vendor = expense.vendor_name || expense.vendor?.name || '-';
-        const category = expense.category_name || expense.category?.name || '-';
-        const amount = parseFloat(String(expense.amount || 0)).toFixed(2);
-        console.log(`   ${index + 1}. [${expenseDate}] ${description}`);
-        console.log(`      Vendor: ${vendor} | Category: ${category} | Amount: $${amount}`);
-      });
-      console.log('');
+      if (Object.keys(byVendor).length > 0) {
+        console.log('🏢 EXPENSES BY VENDOR:');
+        Object.entries(byVendor).forEach(([vendor, data]) => {
+          console.log(`   ${vendor}:`);
+          console.log(`      Count: ${data.expenses.length}`);
+          console.log(`      Total: $${data.total.toFixed(2)}`);
+        });
+        console.log('');
+      }
+
+      if (sortedInvoices.length > 0) {
+        console.log('💰 INCOME DETAILS:');
+        sortedInvoices.forEach((invoice, index) => {
+          const invoiceDate = format(new Date(invoice.date || invoice.invoice_date || ''), 'yyyy-MM-dd');
+          const description = invoice.public_notes || '-';
+          const client = invoice.client_name || invoice.client?.name || '-';
+          const number = invoice.number || '-';
+          const amount = parseFloat(String(invoice.amount || 0)).toFixed(2);
+          console.log(`   ${index + 1}. [${invoiceDate}] Invoice #${number}`);
+          console.log(`      Client: ${client} | Amount: $${amount}`);
+          if (description !== '-') console.log(`      Description: ${description}`);
+        });
+        console.log('');
+      }
+
+      if (sortedExpenses.length > 0) {
+        console.log('📝 EXPENSE DETAILS:');
+        sortedExpenses.forEach((expense, index) => {
+          const expenseDate = format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd');
+          const description = expense.public_notes || expense.description || '-';
+          const vendor = expense.vendor_name || expense.vendor?.name || '-';
+          const category = expense.category_name || expense.category?.name || '-';
+          const amount = parseFloat(String(expense.amount || 0)).toFixed(2);
+          console.log(`   ${index + 1}. [${expenseDate}] ${description}`);
+          console.log(`      Vendor: ${vendor} | Category: ${category} | Amount: $${amount}`);
+        });
+        console.log('');
+      }
 
       // Step 7: Generate PDF report
       console.log('📄 Generating PDF report...');
-      const reportTitle = process.env.REPORT_TITLE || 'HOA Expense Report';
+      const reportTitle = process.env.REPORT_TITLE || 'HOA Financial Report';
       const periodString = formatPeriodString(period, dateRange);
 
-      const pdfBuffer = await this.pdfGenerator.generateExpenseReport({
+      const pdfBuffer = await this.pdfGenerator.generateFinancialReport({
         expenses: sortedExpenses,
+        invoices: sortedInvoices,
         title: reportTitle,
         period: periodString,
-        totalAmount: totalAmount,
+        totalExpenses: totalExpenses,
+        totalIncome: totalIncome,
+        netAmount: netAmount,
         generatedDate: new Date()
       });
 
@@ -418,9 +555,11 @@ This report was automatically generated by the HOA Expense Automation System.
         success: true,
         message: 'Test inform completed successfully',
         stats: {
-          count: stats.count,
-          total: totalAmount,
-          average: stats.average,
+          expenseCount: expenseStats.count,
+          incomeCount: incomeStats.count,
+          totalExpenses: totalExpenses,
+          totalIncome: totalIncome,
+          netAmount: netAmount,
           period: periodString
         }
       };
@@ -434,7 +573,7 @@ This report was automatically generated by the HOA Expense Automation System.
 
 // Main execution
 async function main(): Promise<void> {
-  const automation = new HOAExpenseAutomation();
+  const automation = new HOAInformAutomation();
 
   // Parse command line arguments
   const args = process.argv.slice(2);
@@ -449,13 +588,14 @@ async function main(): Promise<void> {
       const period = (args[1] as PeriodType) || (process.env.REPORT_PERIOD as PeriodType) || 'current-month';
       const result = await automation.testInform({
         period: period,
-        outputPath: './expense-report-test.pdf'
+        outputPath: './financial-report-test.pdf'
       });
       if (result.stats) {
         console.log('Report Summary:');
         console.log(`  Period: ${result.stats.period}`);
-        console.log(`  Expenses: ${result.stats.count}`);
-        console.log(`  Total: $${result.stats.total.toFixed(2)}`);
+        console.log(`  Income: ${result.stats.incomeCount} invoices, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Expenses: ${result.stats.expenseCount} items, $${result.stats.totalExpenses.toFixed(2)}`);
+        console.log(`  Net: $${result.stats.netAmount.toFixed(2)} ${result.stats.netAmount >= 0 ? '(Surplus)' : '(Deficit)'}`);
       }
     } else if (command === 'report') {
       // Generate and send report
@@ -467,8 +607,9 @@ async function main(): Promise<void> {
       if (result.stats) {
         console.log('\n✓ Report generation completed successfully!');
         console.log(`  Period: ${result.stats.period}`);
-        console.log(`  Expenses: ${result.stats.count}`);
-        console.log(`  Total: $${result.stats.total.toFixed(2)}`);
+        console.log(`  Income: ${result.stats.incomeCount} invoices, $${result.stats.totalIncome.toFixed(2)}`);
+        console.log(`  Expenses: ${result.stats.expenseCount} items, $${result.stats.totalExpenses.toFixed(2)}`);
+        console.log(`  Net: $${result.stats.netAmount.toFixed(2)} ${result.stats.netAmount >= 0 ? '(Surplus)' : '(Deficit)'}`);
       }
     } else {
       console.log('Unknown command. Usage:');
@@ -490,4 +631,4 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }
 
-export default HOAExpenseAutomation;
+export default HOAInformAutomation;
