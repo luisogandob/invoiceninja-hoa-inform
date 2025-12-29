@@ -27,6 +27,11 @@ export interface ReportData {
 type JSReportInstance = any;
 
 /**
+ * Configuration constants
+ */
+const MAX_UNPAID_INVOICES_IN_PDF = 20;
+
+/**
  * PDF Generator using JSReport
  * Generates financial reports (income and expenses) in PDF format
  */
@@ -134,13 +139,7 @@ class PDFGenerator {
     generatedDate: Date
   ): string {
     const incomeRows = invoices.map(invoice => {
-      const dateStr = invoice.date || invoice.invoice_date || new Date().toISOString();
-      let formattedDate = 'N/A';
-      try {
-        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
-      } catch {
-        formattedDate = format(new Date(), 'yyyy-MM-dd');
-      }
+      const formattedDate = this.formatDate(invoice.date || invoice.invoice_date);
       return `
       <tr>
         <td>${formattedDate}</td>
@@ -153,13 +152,7 @@ class PDFGenerator {
     }).join('');
 
     const paymentRows = payments.map(payment => {
-      const dateStr = payment.date || payment.payment_date || new Date().toISOString();
-      let formattedDate = 'N/A';
-      try {
-        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
-      } catch {
-        formattedDate = format(new Date(), 'yyyy-MM-dd');
-      }
+      const formattedDate = this.formatDate(payment.date || payment.payment_date);
       return `
       <tr>
         <td>${formattedDate}</td>
@@ -170,14 +163,8 @@ class PDFGenerator {
     `;
     }).join('');
 
-    const unpaidRows = unpaidInvoices.slice(0, 20).map(invoice => {
-      const dateStr = invoice.date || invoice.invoice_date || new Date().toISOString();
-      let formattedDate = 'N/A';
-      try {
-        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
-      } catch {
-        formattedDate = format(new Date(), 'yyyy-MM-dd');
-      }
+    const unpaidRows = unpaidInvoices.slice(0, MAX_UNPAID_INVOICES_IN_PDF).map(invoice => {
+      const formattedDate = this.formatDate(invoice.date || invoice.invoice_date);
       const balance = parseFloat(String(invoice.balance || 0));
       return `
       <tr>
@@ -191,13 +178,7 @@ class PDFGenerator {
     }).join('');
 
     const expenseRows = expenses.map(expense => {
-      const dateStr = expense.date || expense.expense_date || new Date().toISOString();
-      let formattedDate = 'N/A';
-      try {
-        formattedDate = format(new Date(dateStr), 'yyyy-MM-dd');
-      } catch {
-        formattedDate = format(new Date(), 'yyyy-MM-dd');
-      }
+      const formattedDate = this.formatDate(expense.date || expense.expense_date);
       return `
       <tr>
         <td>${formattedDate}</td>
@@ -426,7 +407,7 @@ class PDFGenerator {
       </tr>
     </tbody>
   </table>
-  ${unpaidInvoices.length > 20 ? `<p style="font-size: 11px; color: #95a5a6; margin-top: -20px;"><em>Showing top 20 of ${unpaidInvoices.length} unpaid invoices.</em></p>` : ''}
+  ${unpaidInvoices.length > MAX_UNPAID_INVOICES_IN_PDF ? `<p style="font-size: 11px; color: #95a5a6; margin-top: -20px;"><em>Showing top ${MAX_UNPAID_INVOICES_IN_PDF} of ${unpaidInvoices.length} unpaid invoices.</em></p>` : ''}
   ` : ''}
 
   <h2>Expenses</h2>
@@ -457,6 +438,20 @@ class PDFGenerator {
 </body>
 </html>
     `.trim();
+  }
+
+  /**
+   * Format a date string to yyyy-MM-dd format
+   */
+  private formatDate(dateStr: string | undefined): string {
+    if (!dateStr) {
+      return 'N/A';
+    }
+    try {
+      return format(new Date(dateStr), 'yyyy-MM-dd');
+    } catch {
+      return format(new Date(), 'yyyy-MM-dd');
+    }
   }
 
   /**
