@@ -1,5 +1,6 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
+import FormData from 'form-data';
 
 dotenv.config();
 
@@ -122,7 +123,6 @@ class InvoiceNinjaClient {
    */
   async uploadExpenseDocument(expenseId, fileBuffer, filename) {
     try {
-      const FormData = (await import('form-data')).default;
       const formData = new FormData();
       formData.append('file', fileBuffer, filename);
       formData.append('_method', 'PUT');

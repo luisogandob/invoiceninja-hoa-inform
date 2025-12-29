@@ -1,4 +1,5 @@
 import jsreport from 'jsreport-core';
+import chromePdf from 'jsreport-chrome-pdf';
 import { format } from 'date-fns';
 
 /**
@@ -18,13 +19,10 @@ class PDFGenerator {
       return;
     }
 
-    this.jsreport = jsreport({
-      extensions: {
-        'chrome-pdf': {
-          timeout: 60000
-        }
-      }
-    });
+    this.jsreport = jsreport();
+    this.jsreport.use(chromePdf({
+      timeout: 60000
+    }));
 
     await this.jsreport.init();
     console.log('JSReport initialized successfully');
