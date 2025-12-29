@@ -94,6 +94,7 @@ Edit `.env` and set your configuration:
 |----------|-------------|---------|
 | `INVOICE_NINJA_URL` | Your Invoice Ninja instance URL | `https://invoice.example.com` |
 | `INVOICE_NINJA_TOKEN` | API token from Invoice Ninja | `your-api-token` |
+| `INVOICE_NINJA_PER_PAGE` | Number of records to fetch per API page (default: 250, max: 250) | `250` |
 | `EMAIL_HOST` | SMTP server hostname | `smtp.gmail.com` |
 | `EMAIL_PORT` | SMTP server port | `587` |
 | `EMAIL_SECURE` | Use TLS/SSL | `false` |
@@ -209,15 +210,20 @@ invoiceninja-hoa-inform/
 
 Handles all interactions with the Invoice Ninja API:
 
-- `getExpenses(filters)` - Retrieve expenses with optional filtering
+- `getExpenses(filters)` - Retrieve expenses with optional filtering (supports pagination and date filters)
 - `getExpense(expenseId)` - Get a single expense by ID
-- `getInvoices(filters)` - Retrieve invoices (income) with optional filtering
+- `getInvoices(filters)` - Retrieve invoices (income) with optional filtering (supports pagination and date filters)
 - `getInvoice(invoiceId)` - Get a single invoice by ID
-- `getClients()` - Retrieve all clients
-- `getVendors()` - Retrieve all vendors
-- `getExpenseCategories()` - Retrieve expense categories
+- `getClients()` - Retrieve all clients (with automatic pagination)
+- `getVendors()` - Retrieve all vendors (with automatic pagination)
+- `getExpenseCategories()` - Retrieve expense categories (with automatic pagination)
 - `createExpense(data)` - Create a new expense
 - `uploadExpenseDocument(expenseId, buffer, filename)` - Upload documents
+
+**API Features:**
+- Automatic pagination - fetches all pages of results (configurable via `INVOICE_NINJA_PER_PAGE`)
+- Date filtering - use `start_date` and `end_date` in filters to get data for specific date ranges
+- Efficient data retrieval - only fetches relevant records instead of all data
 
 ### PDFGenerator
 

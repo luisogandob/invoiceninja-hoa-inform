@@ -136,43 +136,55 @@ class InvoiceNinjaClient {
   }
 
   /**
+   * Generic pagination helper to fetch all pages of data from an endpoint
+   */
+  private async fetchAllPages<T>(
+    endpoint: string,
+    filters: Record<string, any> = {}
+  ): Promise<T[]> {
+    const allResults: T[] = [];
+    let currentPage = 1;
+    let hasMorePages = true;
+
+    // Set default per_page if not provided in filters
+    const perPage = filters.per_page || this.perPage;
+
+    while (hasMorePages) {
+      const params = {
+        ...filters,
+        per_page: perPage,
+        page: currentPage
+      };
+
+      const response = await this.client.get<ApiResponse<T[]>>(endpoint, { params });
+      const results = response.data.data || [];
+      
+      // If we got no results, we're done
+      if (results.length === 0) {
+        hasMorePages = false;
+        break;
+      }
+
+      allResults.push(...results);
+
+      // Check if there are more pages using pagination metadata
+      const pagination = response.data.meta?.pagination;
+      if (pagination && pagination.current_page < pagination.total_pages) {
+        currentPage++;
+      } else {
+        hasMorePages = false;
+      }
+    }
+
+    return allResults;
+  }
+
+  /**
    * Get all expenses with optional filters and automatic pagination
    */
   async getExpenses(filters: ExpenseFilters = {}): Promise<Expense[]> {
     try {
-      const allExpenses: Expense[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-
-      // Set default per_page if not provided
-      const perPage = filters.per_page || this.perPage;
-
-      while (hasMorePages) {
-        const params = {
-          ...filters,
-          per_page: perPage,
-          page: currentPage
-        };
-
-        const response = await this.client.get<ApiResponse<Expense[]>>('/expenses', { params });
-        const expenses = response.data.data || [];
-        allExpenses.push(...expenses);
-
-        // Check if there are more pages
-        const pagination = response.data.meta?.pagination;
-        if (pagination && pagination.current_page < pagination.total_pages) {
-          currentPage++;
-        } else {
-          hasMorePages = false;
-        }
-
-        // Safety check: if no pagination info and we got fewer than per_page results, we're done
-        if (!pagination && expenses.length < perPage) {
-          hasMorePages = false;
-        }
-      }
-
-      return allExpenses;
+      return await this.fetchAllPages<Expense>('/expenses', filters);
     } catch (error) {
       console.error('Error fetching expenses:', (error as Error).message);
       throw error;
@@ -197,35 +209,7 @@ class InvoiceNinjaClient {
    */
   async getClients(): Promise<Client[]> {
     try {
-      const allClients: Client[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-
-      while (hasMorePages) {
-        const params = {
-          per_page: this.perPage,
-          page: currentPage
-        };
-
-        const response = await this.client.get<ApiResponse<Client[]>>('/clients', { params });
-        const clients = response.data.data || [];
-        allClients.push(...clients);
-
-        // Check if there are more pages
-        const pagination = response.data.meta?.pagination;
-        if (pagination && pagination.current_page < pagination.total_pages) {
-          currentPage++;
-        } else {
-          hasMorePages = false;
-        }
-
-        // Safety check: if no pagination info and we got fewer than per_page results, we're done
-        if (!pagination && clients.length < this.perPage) {
-          hasMorePages = false;
-        }
-      }
-
-      return allClients;
+      return await this.fetchAllPages<Client>('/clients');
     } catch (error) {
       console.error('Error fetching clients:', (error as Error).message);
       throw error;
@@ -237,35 +221,7 @@ class InvoiceNinjaClient {
    */
   async getVendors(): Promise<Vendor[]> {
     try {
-      const allVendors: Vendor[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-
-      while (hasMorePages) {
-        const params = {
-          per_page: this.perPage,
-          page: currentPage
-        };
-
-        const response = await this.client.get<ApiResponse<Vendor[]>>('/vendors', { params });
-        const vendors = response.data.data || [];
-        allVendors.push(...vendors);
-
-        // Check if there are more pages
-        const pagination = response.data.meta?.pagination;
-        if (pagination && pagination.current_page < pagination.total_pages) {
-          currentPage++;
-        } else {
-          hasMorePages = false;
-        }
-
-        // Safety check: if no pagination info and we got fewer than per_page results, we're done
-        if (!pagination && vendors.length < this.perPage) {
-          hasMorePages = false;
-        }
-      }
-
-      return allVendors;
+      return await this.fetchAllPages<Vendor>('/vendors');
     } catch (error) {
       console.error('Error fetching vendors:', (error as Error).message);
       throw error;
@@ -277,35 +233,7 @@ class InvoiceNinjaClient {
    */
   async getExpenseCategories(): Promise<ExpenseCategory[]> {
     try {
-      const allCategories: ExpenseCategory[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-
-      while (hasMorePages) {
-        const params = {
-          per_page: this.perPage,
-          page: currentPage
-        };
-
-        const response = await this.client.get<ApiResponse<ExpenseCategory[]>>('/expense_categories', { params });
-        const categories = response.data.data || [];
-        allCategories.push(...categories);
-
-        // Check if there are more pages
-        const pagination = response.data.meta?.pagination;
-        if (pagination && pagination.current_page < pagination.total_pages) {
-          currentPage++;
-        } else {
-          hasMorePages = false;
-        }
-
-        // Safety check: if no pagination info and we got fewer than per_page results, we're done
-        if (!pagination && categories.length < this.perPage) {
-          hasMorePages = false;
-        }
-      }
-
-      return allCategories;
+      return await this.fetchAllPages<ExpenseCategory>('/expense_categories');
     } catch (error) {
       console.error('Error fetching expense categories:', (error as Error).message);
       throw error;
@@ -356,39 +284,7 @@ class InvoiceNinjaClient {
    */
   async getInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
     try {
-      const allInvoices: Invoice[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-
-      // Set default per_page if not provided
-      const perPage = filters.per_page || this.perPage;
-
-      while (hasMorePages) {
-        const params = {
-          ...filters,
-          per_page: perPage,
-          page: currentPage
-        };
-
-        const response = await this.client.get<ApiResponse<Invoice[]>>('/invoices', { params });
-        const invoices = response.data.data || [];
-        allInvoices.push(...invoices);
-
-        // Check if there are more pages
-        const pagination = response.data.meta?.pagination;
-        if (pagination && pagination.current_page < pagination.total_pages) {
-          currentPage++;
-        } else {
-          hasMorePages = false;
-        }
-
-        // Safety check: if no pagination info and we got fewer than per_page results, we're done
-        if (!pagination && invoices.length < perPage) {
-          hasMorePages = false;
-        }
-      }
-
-      return allInvoices;
+      return await this.fetchAllPages<Invoice>('/invoices', filters);
     } catch (error) {
       console.error('Error fetching invoices:', (error as Error).message);
       throw error;
