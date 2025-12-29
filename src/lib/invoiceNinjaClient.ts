@@ -56,11 +56,40 @@ export interface ExpenseCategory {
 }
 
 /**
+ * Invoice interface (represents income)
+ */
+export interface Invoice {
+  id?: string;
+  amount: number;
+  date?: string;
+  invoice_date?: string;
+  public_notes?: string;
+  number?: string;
+  client_name?: string;
+  client?: {
+    name: string;
+  };
+  status_id?: string;
+  balance?: number;
+  paid_to_date?: number;
+}
+
+/**
  * Filter parameters for expenses
  */
 export interface ExpenseFilters {
   per_page?: number;
   page?: number;
+  [key: string]: any;
+}
+
+/**
+ * Filter parameters for invoices
+ */
+export interface InvoiceFilters {
+  per_page?: number;
+  page?: number;
+  status?: string;
   [key: string]: any;
 }
 
@@ -191,6 +220,32 @@ class InvoiceNinjaClient {
       return response.data;
     } catch (error) {
       console.error('Error uploading document:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all invoices with optional filters
+   */
+  async getInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
+    try {
+      const response = await this.client.get<ApiResponse<Invoice[]>>('/invoices', { params: filters });
+      return response.data.data || [];
+    } catch (error) {
+      console.error('Error fetching invoices:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get a single invoice by ID
+   */
+  async getInvoice(invoiceId: string): Promise<Invoice> {
+    try {
+      const response = await this.client.get<ApiResponse<Invoice>>(`/invoices/${invoiceId}`);
+      return response.data.data;
+    } catch (error) {
+      console.error(`Error fetching invoice ${invoiceId}:`, (error as Error).message);
       throw error;
     }
   }

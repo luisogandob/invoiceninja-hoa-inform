@@ -1,16 +1,19 @@
 import jsreport from '@jsreport/jsreport-core';
 import chromePdf from '@jsreport/jsreport-chrome-pdf';
 import { format } from 'date-fns';
-import type { Expense } from './invoiceNinjaClient.js';
+import type { Expense, Invoice } from './invoiceNinjaClient.js';
 
 /**
- * Report data structure
+ * Report data structure for financial reports (incomes and expenses)
  */
 export interface ReportData {
   expenses: Expense[];
+  invoices: Invoice[];
   title: string;
   period: string;
-  totalAmount: number;
+  totalExpenses: number;
+  totalIncome: number;
+  netAmount: number;
   generatedDate: Date;
 }
 
@@ -21,7 +24,7 @@ type JSReportInstance = any;
 
 /**
  * PDF Generator using JSReport
- * Generates expense reports in PDF format
+ * Generates financial reports (income and expenses) in PDF format
  */
 class PDFGenerator {
   private jsreport: JSReportInstance | null = null;
@@ -44,14 +47,14 @@ class PDFGenerator {
   }
 
   /**
-   * Generate expense report PDF
+   * Generate financial report PDF with both incomes and expenses
    */
-  async generateExpenseReport(reportData: ReportData): Promise<Buffer> {
+  async generateFinancialReport(reportData: ReportData): Promise<Buffer> {
     await this.init();
 
-    const { expenses, title, period, totalAmount, generatedDate } = reportData;
+    const { expenses, invoices, title, period, totalExpenses, totalIncome, netAmount, generatedDate } = reportData;
 
-    const htmlTemplate = this.createHTMLTemplate(expenses, title, period, totalAmount, generatedDate);
+    const htmlTemplate = this.createHTMLTemplate(expenses, invoices, title, period, totalExpenses, totalIncome, netAmount, generatedDate);
 
     try {
       const result = await this.jsreport.render({
@@ -84,15 +87,28 @@ class PDFGenerator {
   }
 
   /**
-   * Create HTML template for the report
+   * Create HTML template for the financial report
    */
   private createHTMLTemplate(
     expenses: Expense[],
+    invoices: Invoice[],
     title: string,
     period: string,
-    totalAmount: number,
+    totalExpenses: number,
+    totalIncome: number,
+    netAmount: number,
     generatedDate: Date
   ): string {
+    const incomeRows = invoices.map(invoice => `
+      <tr>
+        <td>${format(new Date(invoice.date || invoice.invoice_date || ''), 'yyyy-MM-dd')}</td>
+        <td>${this.escapeHtml(invoice.number || '-')}</td>
+        <td>${this.escapeHtml(invoice.client_name || invoice.client?.name || '-')}</td>
+        <td>${this.escapeHtml(invoice.public_notes || '-')}</td>
+        <td style="text-align: right;">$${this.formatAmount(invoice.amount)}</td>
+      </tr>
+    `).join('');
+
     const expenseRows = expenses.map(expense => `
       <tr>
         <td>${format(new Date(expense.date || expense.expense_date || ''), 'yyyy-MM-dd')}</td>
@@ -131,15 +147,49 @@ class PDFGenerator {
       font-size: 24px;
       margin-bottom: 10px;
     }
+    h2 {
+      color: #2c3e50;
+      font-size: 18px;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #bdc3c7;
+    }
     .subtitle {
       color: #7f8c8d;
       font-size: 14px;
       margin-bottom: 5px;
     }
+    .summary {
+      background-color: #ecf0f1;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 5px;
+    }
+    .summary-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      font-size: 14px;
+    }
+    .summary-row.net {
+      font-weight: bold;
+      font-size: 16px;
+      padding-top: 15px;
+      border-top: 2px solid #34495e;
+      margin-top: 10px;
+    }
+    .income-color {
+      color: #27ae60;
+    }
+    .expense-color {
+      color: #e74c3c;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
+      margin-top: 10px;
+      margin-bottom: 30px;
     }
     th {
       background-color: #34495e;
@@ -149,6 +199,12 @@ class PDFGenerator {
       font-weight: bold;
       font-size: 12px;
       text-transform: uppercase;
+    }
+    th.income-header {
+      background-color: #27ae60;
+    }
+    th.expense-header {
+      background-color: #e74c3c;
     }
     td {
       padding: 10px 12px;
@@ -182,27 +238,67 @@ class PDFGenerator {
     <div class="subtitle">Generated: ${format(generatedDate, 'yyyy-MM-dd HH:mm')}</div>
   </div>
 
+  <div class="summary">
+    <div class="summary-row">
+      <span>Total Income:</span>
+      <span class="income-color">$${this.formatAmount(totalIncome)}</span>
+    </div>
+    <div class="summary-row">
+      <span>Total Expenses:</span>
+      <span class="expense-color">$${this.formatAmount(totalExpenses)}</span>
+    </div>
+    <div class="summary-row net">
+      <span>Net Amount:</span>
+      <span style="color: ${netAmount >= 0 ? '#27ae60' : '#e74c3c'};">$${this.formatAmount(netAmount)}</span>
+    </div>
+  </div>
+
+  <h2>Income</h2>
   <table>
     <thead>
       <tr>
-        <th>Date</th>
-        <th>Description</th>
-        <th>Vendor</th>
-        <th>Category</th>
-        <th style="text-align: right;">Amount</th>
+        <th class="income-header">Date</th>
+        <th class="income-header">Invoice #</th>
+        <th class="income-header">Client</th>
+        <th class="income-header">Description</th>
+        <th class="income-header" style="text-align: right;">Amount</th>
       </tr>
     </thead>
     <tbody>
-      ${expenseRows}
+      ${incomeRows || '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No income records for this period</td></tr>'}
+      ${invoices.length > 0 ? `
       <tr class="total-row">
-        <td colspan="4" style="text-align: right;">TOTAL:</td>
-        <td style="text-align: right;">$${this.formatAmount(totalAmount)}</td>
+        <td colspan="4" style="text-align: right;">TOTAL INCOME:</td>
+        <td style="text-align: right;" class="income-color">$${this.formatAmount(totalIncome)}</td>
       </tr>
+      ` : ''}
+    </tbody>
+  </table>
+
+  <h2>Expenses</h2>
+  <table>
+    <thead>
+      <tr>
+        <th class="expense-header">Date</th>
+        <th class="expense-header">Description</th>
+        <th class="expense-header">Vendor</th>
+        <th class="expense-header">Category</th>
+        <th class="expense-header" style="text-align: right;">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${expenseRows || '<tr><td colspan="5" style="text-align: center; color: #95a5a6;">No expense records for this period</td></tr>'}
+      ${expenses.length > 0 ? `
+      <tr class="total-row">
+        <td colspan="4" style="text-align: right;">TOTAL EXPENSES:</td>
+        <td style="text-align: right;" class="expense-color">$${this.formatAmount(totalExpenses)}</td>
+      </tr>
+      ` : ''}
     </tbody>
   </table>
 
   <div class="footer">
-    <p>This report was automatically generated by the HOA Expense Automation System</p>
+    <p>This report was automatically generated by the HOA Financial Reporting System</p>
   </div>
 </body>
 </html>
