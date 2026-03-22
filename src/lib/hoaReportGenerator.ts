@@ -14,26 +14,88 @@ const CHART_RENDER_TIMEOUT_MS = 15_000;
 // ---------------------------------------------------------------------------
 
 let _chartJsBundle: string | null = null;
-let _colorSchemesBundle: string | null = null;
 
 function getChartJs(): string {
   if (_chartJsBundle === null) {
-    _chartJsBundle = readFileSync(
-      _require.resolve('chart.js/dist/Chart.min.js'),
-      'utf-8'
-    );
+    // Chart.js 4.x's "exports" field does not expose dist/chart.umd.min.js directly.
+    // Resolve the package root by stripping from "/dist/" in the CJS main entry path.
+    const cjsEntry = _require.resolve('chart.js');
+    const pkgRoot = cjsEntry.replace(/[\\/]dist[\\/][^\\/]+$/, '');
+    if (pkgRoot === cjsEntry) {
+      throw new Error(
+        `[HoaReportGenerator] Could not derive chart.js package root from "${cjsEntry}". ` +
+        'Expected a path containing /dist/<filename>.'
+      );
+    }
+    _chartJsBundle = readFileSync(`${pkgRoot}/dist/chart.umd.min.js`, 'utf-8');
   }
   return _chartJsBundle;
 }
 
-function getColorSchemes(): string {
-  if (_colorSchemesBundle === null) {
-    _colorSchemesBundle = readFileSync(
-      _require.resolve('chartjs-plugin-colorschemes/dist/chartjs-plugin-colorschemes.min.js'),
-      'utf-8'
+// ---------------------------------------------------------------------------
+// Color-scheme data — extracted server-side from chartjs-plugin-colorschemes
+// ---------------------------------------------------------------------------
+
+let _colorData: Record<string, Record<string, string[]>> | null = null;
+
+/**
+ * Parse palette arrays from the chartjs-plugin-colorschemes source.
+ * The plugin itself is not loaded in the browser (it's Chart.js 2-only);
+ * only the raw color arrays are used as JSON.
+ *
+ * Each palette variable in the source looks like:
+ *   \tPaired12 = ['#...', '#...', ...],
+ * with a leading tab and values in single-quoted strings.
+ */
+function getColorData(): Record<string, Record<string, string[]>> {
+  if (_colorData !== null) return _colorData;
+
+  const src = readFileSync(
+    _require.resolve('chartjs-plugin-colorschemes/dist/chartjs-plugin-colorschemes.js'),
+    'utf-8'
+  );
+
+  // Collect all palette arrays from the variable declarations section
+  const palettes: Record<string, string[]> = {};
+  const paletteRe = /^\t(\w+)\s*=\s*(\[[^\]]+\])/gm;
+  let m: RegExpExecArray | null;
+  while ((m = paletteRe.exec(src)) !== null) {
+    try {
+      palettes[m[1]] = JSON.parse(m[2].replace(/'/g, '"'));
+    } catch {
+      // skip malformed entries
+    }
+  }
+
+  // Group by frozen-object sections: brewer / office / tableau.
+  // Pattern: "var groupName = /*#__PURE__*/ Object.freeze({ ... })"
+  const groups: Record<string, Record<string, string[]>> = {};
+  const groupRe = /var\s+(\w+)\s*=\s*(?:\/\*[^*]*\*\/\s*)?Object\.freeze\(\{([^}]+)\}\)/gs;
+  let gm: RegExpExecArray | null;
+  while ((gm = groupRe.exec(src)) !== null) {
+    const groupName = gm[1];
+    const block = gm[2];
+    const names = (block.match(/\b(\w+):\s*\1\b/g) ?? []).map(s => s.split(':')[0].trim());
+    if (names.length === 0) continue;
+    groups[groupName] = {};
+    for (const name of names) {
+      if (palettes[name]) {
+        groups[groupName][name] = palettes[name];
+      }
+    }
+  }
+
+  // Warn if the extraction produced no groups — likely a source format change in the plugin.
+  if (Object.keys(groups).length === 0) {
+    console.warn(
+      '[HoaReportGenerator] Failed to extract any color groups from chartjs-plugin-colorschemes. ' +
+      'Color scheme selection will use the fallback palette. ' +
+      'This may indicate the plugin\'s source format has changed.'
     );
   }
-  return _colorSchemesBundle;
+
+  _colorData = groups;
+  return _colorData;
 }
 
 /**
@@ -143,8 +205,6 @@ class HoaReportGenerator {
       { id: 'kpi-expenses', lines: ['Gastos', 'del Período'],                  value: `$${fmt(totalExpensesInPeriod)}`  }
     ]);
 
-    const colorSchemeJson = JSON.stringify(this.colorScheme);
-
     // Warn early (server-side) when the scheme string looks invalid so users
     // notice the issue in the logs rather than silently getting the fallback.
     const [schemeGroup, schemeKey] = this.colorScheme.split('.');
@@ -154,6 +214,16 @@ class HoaReportGenerator {
         `"group.SchemeName" format (e.g. "brewer.Paired12"). Using fallback palette.`
       );
     }
+
+    // Resolve the palette server-side and embed it as JSON in the page.
+    const colorData = getColorData();
+    const resolvedPalette =
+      (schemeGroup && schemeKey && colorData[schemeGroup]?.[schemeKey]) ||
+      (console.warn(
+        `[HoaReportGenerator] CHART_COLOR_SCHEME "${this.colorScheme}" not found in colorschemes data. Using fallback palette.`
+      ),
+      ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2980b9']);
+    const paletteJson = JSON.stringify(resolvedPalette);
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -240,38 +310,29 @@ class HoaReportGenerator {
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
-  <!-- ── Chart.js + chartjs-plugin-colorschemes (inlined) ── -->
+  <!-- ── Chart.js (inlined) ── -->
   <script>${getChartJs()}</script>
-  <script>${getColorSchemes()}</script>
   <script>
   (function () {
     'use strict';
 
-    /* ── Resolve color palette from the configured scheme ── */
-    var scheme = ${colorSchemeJson};
-    var parts   = scheme.split('.');
-    var palette = (
-      Chart.colorschemes &&
-      Chart.colorschemes[parts[0]] &&
-      Chart.colorschemes[parts[0]][parts[1]]
-    ) || (function () {
-      console.warn('[HoaReport] Color scheme "' + scheme + '" not found; using fallback palette.');
-      return ['#3498db','#e74c3c','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#2980b9'];
-    }());
+    /* ── Color palette resolved server-side from chartjs-plugin-colorschemes ── */
+    var palette = ${paletteJson};
 
     function getColor(i) { return palette[i % palette.length]; }
 
     /* ── Center-text plugin: renders label + value inside a doughnut hole ── */
-    Chart.plugins.register({
+    /* Compatible with Chart.js 4.x plugin API */
+    Chart.register({
       id: 'centerText',
       afterDraw: function (chart) {
-        var ct = chart.config.options.centerText;
+        var ct = chart.options.centerText;
         if (!ct) return;
 
-        var ctx    = chart.chart.ctx;
-        var cx     = (chart.chartArea.left + chart.chartArea.right)  / 2;
-        var cy     = (chart.chartArea.top  + chart.chartArea.bottom) / 2;
-        var lines  = ct.lines || [];
+        var ctx = chart.ctx;
+        var cx  = (chart.chartArea.left + chart.chartArea.right)  / 2;
+        var cy  = (chart.chartArea.top  + chart.chartArea.bottom) / 2;
+        var lines = ct.lines || [];
 
         var labelSize = 10;
         var valueSize = 20;
@@ -318,12 +379,14 @@ class HoaReportGenerator {
           }]
         },
         options: {
-          cutoutPercentage: 72,
-          responsive:  false,
-          legend:      { display: false },
-          tooltips:    { enabled: false },
-          animation:   { duration: 0 },
-          centerText:  { lines: kpi.lines, value: kpi.value }
+          cutout: '72%',
+          responsive: false,
+          animation:  false,
+          plugins: {
+            legend:      { display: false },
+            tooltip:     { enabled: false },
+            centerText:  { lines: kpi.lines, value: kpi.value }
+          }
         }
       });
     });
@@ -344,28 +407,30 @@ class HoaReportGenerator {
         },
         options: {
           responsive: false,
-          legend:     { display: false },
-          animation:  { duration: 0 },
-          scales: {
-            yAxes: [{
-              ticks: {
-                beginAtZero: true,
-                callback: function (v) {
-                  return '$' + v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+          animation:  false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  return '$' + item.parsed.y.toLocaleString('en-US', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                  });
                 }
               }
-            }],
-            xAxes: [{
-              ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 }
-            }]
+            }
           },
-          tooltips: {
-            callbacks: {
-              label: function (item) {
-                return '$' + item.yLabel.toLocaleString('en-US', {
-                  minimumFractionDigits: 2, maximumFractionDigits: 2
-                });
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: {
+                callback: function (v) {
+                  return '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+                }
               }
+            },
+            x: {
+              ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 }
             }
           }
         }
