@@ -33,6 +33,8 @@ export interface Expense {
    * Empty string / undefined means the expense has NOT been paid yet.
    */
   payment_date?: string;
+  /** True when the record has been soft-deleted in Invoice Ninja */
+  is_deleted?: boolean;
   public_notes?: string;
   description?: string;
   vendor_name?: string;
@@ -53,6 +55,8 @@ export interface Client {
   name: string;
   /** ID of the Group Settings record this client belongs to (optional) */
   group_settings_id?: string;
+  /** True when the record has been soft-deleted in Invoice Ninja */
+  is_deleted?: boolean;
 }
 
 /**
@@ -97,6 +101,8 @@ export interface Invoice {
   status_id?: string;
   balance?: number;
   paid_to_date?: number;
+  /** True when the record has been soft-deleted in Invoice Ninja */
+  is_deleted?: boolean;
 }
 
 /**
@@ -120,6 +126,8 @@ export interface Payment {
   type_id?: string;
   private_notes?: string;
   invoice_number?: string;
+  /** True when the record has been soft-deleted in Invoice Ninja */
+  is_deleted?: boolean;
 }
 
 /**

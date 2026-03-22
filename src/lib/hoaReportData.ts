@@ -112,6 +112,16 @@ export function buildHoaReportData(
   title: string,
   generatedAt: Date
 ): HoaReportData {
+  // --- Exclude soft-deleted records from all calculations ---
+  // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
+  // from the API response. We must discard them to match the platform's totals.
+  allInvoices    = excludeDeleted(allInvoices);
+  periodInvoices = excludeDeleted(periodInvoices);
+  periodPayments = excludeDeleted(periodPayments);
+  periodExpenses = excludeDeleted(periodExpenses);
+  allExpenses    = excludeDeleted(allExpenses);
+  allClients     = excludeDeleted(allClients);
+
   // --- Lookup helpers ---
   // clientById: id → Client
   const clientById = new Map<string, Client>(allClients.map(c => [c.id, c]));
@@ -306,6 +316,11 @@ export function buildHoaReportData(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** Returns a copy of the array with soft-deleted records removed. */
+function excludeDeleted<T extends { is_deleted?: boolean }>(items: T[]): T[] {
+  return items.filter(item => !item.is_deleted);
+}
 
 function formatDate(d: Date): string {
   const yyyy = d.getFullYear();
