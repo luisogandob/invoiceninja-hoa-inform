@@ -1,15 +1,9 @@
-import jsreport from '@jsreport/jsreport-core';
-import chromePdf from '@jsreport/jsreport-chrome-pdf';
+import puppeteer, { type Browser } from 'puppeteer';
 import { format } from 'date-fns';
 import type { HoaReportData, PaymentsByClient, ArByClient } from './hoaReportData.js';
 
 /**
- * JSReport instance type
- */
-type JSReportInstance = any;
-
-/**
- * HOA Report PDF Generator (new report format).
+ * HOA Report PDF Generator.
  *
  * Sections:
  *  1. Header  — title, period dates, generation date
@@ -18,52 +12,47 @@ type JSReportInstance = any;
  *  4. Bar chart — Accounts receivable at end of period, by client
  */
 class HoaReportGenerator {
-  private jsreportInstance: JSReportInstance | null = null;
+  private browser: Browser | null = null;
 
   async init(): Promise<void> {
-    if (this.jsreportInstance) return;
-    this.jsreportInstance = jsreport();
-    this.jsreportInstance.use(chromePdf({ timeout: 60000 }));
-    await this.jsreportInstance.init();
+    if (this.browser) return;
+    this.browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
   }
 
   async generatePdf(data: HoaReportData): Promise<Buffer> {
     await this.init();
 
     const html = this.buildHtml(data);
+    const page = await this.browser!.newPage();
 
     try {
-      const result = await this.jsreportInstance.render({
-        template: {
-          content: html,
-          engine: 'none',
-          recipe: 'chrome-pdf',
-          chrome: {
-            format: 'A4',
-            displayHeaderFooter: true,
-            headerTemplate: '<div></div>',
-            footerTemplate: `
-              <div style="width:100%;text-align:center;font-size:10px;padding:10px;">
-                <span class="pageNumber"></span> / <span class="totalPages"></span>
-              </div>`,
-            marginTop: '1cm',
-            marginBottom: '1.5cm',
-            marginLeft: '1.2cm',
-            marginRight: '1.2cm'
-          }
-        }
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+        displayHeaderFooter: true,
+        headerTemplate: '<div></div>',
+        footerTemplate: `
+          <div style="width:100%;text-align:center;font-size:10px;padding:10px;font-family:Arial,sans-serif;">
+            <span class="pageNumber"></span> / <span class="totalPages"></span>
+          </div>`,
+        margin: { top: '1cm', bottom: '1.5cm', left: '1.2cm', right: '1.2cm' }
       });
-      return result.content;
+      return Buffer.from(pdfBuffer);
     } catch (error) {
       console.error('Error generating HOA report PDF:', (error as Error).message);
       throw error;
+    } finally {
+      await page.close();
     }
   }
 
   async close(): Promise<void> {
-    if (this.jsreportInstance) {
-      await this.jsreportInstance.close();
-      this.jsreportInstance = null;
+    if (this.browser) {
+      await this.browser.close();
+      this.browser = null;
     }
   }
 
