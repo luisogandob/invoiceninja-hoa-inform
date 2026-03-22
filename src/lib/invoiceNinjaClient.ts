@@ -46,6 +46,16 @@ export interface Expense {
 export interface Client {
   id: string;
   name: string;
+  /** ID of the Group Settings record this client belongs to (optional) */
+  group_settings_id?: string;
+}
+
+/**
+ * Client Group interface (Invoice Ninja "Group Settings")
+ */
+export interface ClientGroup {
+  id: string;
+  name: string;
 }
 
 /**
@@ -69,6 +79,7 @@ export interface ExpenseCategory {
  */
 export interface Invoice {
   id?: string;
+  client_id?: string;
   amount: number;
   date?: string;
   invoice_date?: string;
@@ -246,6 +257,18 @@ class InvoiceNinjaClient {
       return await this.fetchAllPages<Client>('/clients');
     } catch (error) {
       console.error('Error fetching clients:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get all client groups (Invoice Ninja "Group Settings") with automatic pagination
+   */
+  async getClientGroups(): Promise<ClientGroup[]> {
+    try {
+      return await this.fetchAllPages<ClientGroup>('/group_settings');
+    } catch (error) {
+      console.error('Error fetching client groups:', (error as Error).message);
       throw error;
     }
   }

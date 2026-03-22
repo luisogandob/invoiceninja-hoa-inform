@@ -118,12 +118,20 @@ class HOAInformAutomation {
       console.log('Fetching all invoices for AR calculation...');
       const allInvoices = await this.invoiceNinja.getInvoices({});
 
+      console.log('Fetching all clients and client groups...');
+      const [allClients, clientGroups] = await Promise.all([
+        this.invoiceNinja.getClients(),
+        this.invoiceNinja.getClientGroups()
+      ]);
+
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
       const reportData = buildHoaReportData(
         allInvoices,
         filteredPeriodInvoices,
         filteredPeriodPayments,
         filteredPeriodExpenses,
+        allClients,
+        clientGroups,
         dateRange.start,
         dateRange.end,
         reportTitle,
@@ -236,12 +244,21 @@ class HOAInformAutomation {
       console.log(`   Gastos en período:   ${filteredPeriodExpenses.length}`);
       console.log(`   Total facturas:      ${allInvoices.length}\n`);
 
+      const [allClients, clientGroups] = await Promise.all([
+        this.invoiceNinja.getClients(),
+        this.invoiceNinja.getClientGroups()
+      ]);
+      console.log(`   Clientes totales:    ${allClients.length}`);
+      console.log(`   Grupos de clientes:  ${clientGroups.length}\n`);
+
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
       const reportData = buildHoaReportData(
         allInvoices,
         filteredPeriodInvoices,
         filteredPeriodPayments,
         filteredPeriodExpenses,
+        allClients,
+        clientGroups,
         dateRange.start,
         dateRange.end,
         reportTitle,
@@ -255,18 +272,18 @@ class HOAInformAutomation {
       console.log(`   Cuentas x Cobrar — Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`);
       console.log(`   Cuentas x Cobrar — Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}\n`);
 
-      if (reportData.paymentsByClient.length > 0) {
-        console.log('💵 PAGOS POR CLIENTE:');
-        reportData.paymentsByClient.forEach(p => {
-          console.log(`   ${p.clientName}: $${p.total.toFixed(2)}`);
+      if (reportData.paymentsByGroup.length > 0) {
+        console.log('💵 PAGOS POR GRUPO DE CLIENTES:');
+        reportData.paymentsByGroup.forEach(p => {
+          console.log(`   ${p.groupName}: $${p.total.toFixed(2)}`);
         });
         console.log('');
       }
 
-      if (reportData.arByClient.length > 0) {
-        console.log('📋 CUENTAS x COBRAR POR CLIENTE:');
-        reportData.arByClient.forEach(a => {
-          console.log(`   ${a.clientName}: $${a.balance.toFixed(2)}`);
+      if (reportData.arByGroup.length > 0) {
+        console.log('📋 CUENTAS x COBRAR POR GRUPO DE CLIENTES:');
+        reportData.arByGroup.forEach(a => {
+          console.log(`   ${a.groupName}: $${a.balance.toFixed(2)}`);
         });
         console.log('');
       }

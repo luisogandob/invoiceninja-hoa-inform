@@ -83,19 +83,19 @@ class HoaReportGenerator {
       totalExpensesInPeriod,
       arAtPeriodStart,
       arAtPeriodEnd,
-      paymentsByClient,
-      arByClient
+      paymentsByGroup,
+      arByGroup
     } = data;
 
     const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const paymentsChartSvg = this.buildBarChart(
-      paymentsByClient.map(p => ({ label: p.clientName, value: p.total })),
+    const paymentsChartSvg = this.buildVerticalBarChart(
+      paymentsByGroup.map(p => ({ label: p.groupName, value: p.total })),
       '#3498db'
     );
 
-    const arChartSvg = this.buildBarChart(
-      arByClient.map(a => ({ label: a.clientName, value: a.balance })),
+    const arChartSvg = this.buildVerticalBarChart(
+      arByGroup.map(a => ({ label: a.groupName, value: a.balance })),
       '#e67e22'
     );
 
@@ -212,15 +212,15 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Bar Chart: Payments by Client ── -->
+  <!-- ── Bar Chart: Payments by Client Group ── -->
   <div class="chart-section">
-    <div class="section-title">Pagos Recibidos en el Período por Cliente</div>
+    <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsChartSvg}
   </div>
 
-  <!-- ── Bar Chart: AR by Client ── -->
+  <!-- ── Bar Chart: AR by Client Group ── -->
   <div class="chart-section">
-    <div class="section-title">Cuentas x Cobrar al Final del Período por Cliente</div>
+    <div class="section-title">Cuentas x Cobrar al Final del Período por Grupo de Clientes</div>
     ${arChartSvg}
   </div>
 
@@ -229,10 +229,10 @@ class HoaReportGenerator {
   }
 
   // ---------------------------------------------------------------------------
-  // SVG bar-chart helper
+  // SVG vertical bar-chart helper
   // ---------------------------------------------------------------------------
 
-  private buildBarChart(
+  private buildVerticalBarChart(
     items: Array<{ label: string; value: number }>,
     barColor: string
   ): string {
@@ -244,33 +244,50 @@ class HoaReportGenerator {
 
     // Chart dimensions (viewBox units)
     const svgWidth = 700;
-    const rowHeight = 36;
-    const labelWidth = 200;
-    const barAreaWidth = svgWidth - labelWidth - 120; // leave room for value text
-    const paddingTop = 10;
-    const paddingBottom = 10;
-    const svgHeight = paddingTop + items.length * rowHeight + paddingBottom;
+    const leftPad = 10;
+    const rightPad = 10;
+    const topPad = 30;    // room for value labels above bars
+    const chartH = 180;   // height of the bar drawing area
+    const bottomPad = 60; // room for group name labels below bars
 
-    const rows = items.map((item, i) => {
-      const barWidth = Math.max(2, (item.value / maxValue) * barAreaWidth);
-      const y = paddingTop + i * rowHeight;
-      const barY = y + 6;
-      const barH = rowHeight - 12;
-      const textY = y + rowHeight / 2 + 5;
-      const valueX = labelWidth + barWidth + 8;
+    const svgHeight = topPad + chartH + bottomPad;
+    const barAreaWidth = svgWidth - leftPad - rightPad;
+    const n = items.length;
+    const slotWidth = barAreaWidth / n;
+    const barWidth = Math.min(80, slotWidth * 0.65);
+    const baselineY = topPad + chartH;
 
-      const labelText = this.truncate(item.label, 28);
-      const valueText = `$${item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
+    // Horizontal grid lines (at 25%, 50%, 75%, 100% of max)
+    const gridLines = [0.25, 0.5, 0.75, 1.0].map(frac => {
+      const y = topPad + chartH * (1 - frac);
+      const amt = maxValue * frac;
+      const label = `$${amt.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
       return `
-      <text x="${labelWidth - 8}" y="${textY}" text-anchor="end" font-size="12" fill="#2c3e50">${this.esc(labelText)}</text>
-      <rect x="${labelWidth}" y="${barY}" width="${barWidth}" height="${barH}" fill="${barColor}" rx="3" />
-      <text x="${valueX}" y="${textY}" font-size="11" fill="#555">${this.esc(valueText)}</text>`;
+    <line x1="${leftPad}" y1="${y}" x2="${svgWidth - rightPad}" y2="${y}" stroke="#ecf0f1" stroke-width="1"/>
+    <text x="${leftPad}" y="${y - 3}" font-size="9" fill="#bdc3c7">${this.esc(label)}</text>`;
+    }).join('');
+
+    const bars = items.map((item, i) => {
+      const barH = Math.max(2, (item.value / maxValue) * chartH);
+      const barX = leftPad + i * slotWidth + (slotWidth - barWidth) / 2;
+      const barY = baselineY - barH;
+      const cx = barX + barWidth / 2;
+
+      const valueText = `$${item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const labelText = this.truncate(item.label, 16);
+
+      // Rotate label -30° around its anchor point to avoid overlap
+      return `
+    <rect x="${barX}" y="${barY}" width="${barWidth}" height="${barH}" fill="${barColor}" rx="3"/>
+    <text x="${cx}" y="${barY - 5}" text-anchor="middle" font-size="10" fill="#2c3e50">${this.esc(valueText)}</text>
+    <text x="${cx}" y="${baselineY + 12}" text-anchor="middle" font-size="11" fill="#2c3e50"
+          transform="rotate(-35,${cx},${baselineY + 12})">${this.esc(labelText)}</text>`;
     }).join('');
 
     return `<svg viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-  <line x1="${labelWidth}" y1="${paddingTop}" x2="${labelWidth}" y2="${svgHeight - paddingBottom}" stroke="#d5d8dc" stroke-width="1"/>
-  ${rows}
+  ${gridLines}
+  <line x1="${leftPad}" y1="${baselineY}" x2="${svgWidth - rightPad}" y2="${baselineY}" stroke="#d5d8dc" stroke-width="1.5"/>
+  ${bars}
 </svg>`;
   }
 

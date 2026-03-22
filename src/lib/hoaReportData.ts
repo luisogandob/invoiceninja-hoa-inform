@@ -1,5 +1,5 @@
 import { parseISO, isWithinInterval, isBefore, isEqual } from 'date-fns';
-import type { Invoice, Payment, Expense } from './invoiceNinjaClient.js';
+import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
  * Aggregated data needed to build the HOA income report.
@@ -25,44 +25,85 @@ export interface HoaReportData {
   /** Accounts receivable at the END of the period */
   arAtPeriodEnd: number;
 
-  /** Payments in the period grouped by client name */
-  paymentsByClient: PaymentsByClient[];
-  /** Accounts receivable at end of period, grouped by client name */
-  arByClient: ArByClient[];
+  /** Payments in the period grouped by client group */
+  paymentsByGroup: PaymentsByGroup[];
+  /** Accounts receivable at end of period, grouped by client group */
+  arByGroup: ArByGroup[];
 }
 
-export interface PaymentsByClient {
-  clientName: string;
+export interface PaymentsByGroup {
+  groupName: string;
   total: number;
 }
 
-export interface ArByClient {
-  clientName: string;
+export interface ArByGroup {
+  groupName: string;
   balance: number;
 }
+
+/** Label used when a client has no group assigned */
+const NO_GROUP_LABEL = 'Sin Grupo';
 
 /**
  * Build the HoaReportData from raw Invoice Ninja data.
  *
- * @param allInvoices   Every invoice fetched (no date filter) — used to compute AR
+ * Calculation notes:
+ *  - totalInvoicedInPeriod : sum of invoice.amount for invoices issued within the period
+ *  - totalPaymentsInPeriod : sum of payment.amount for payments received within the period
+ *  - totalExpensesInPeriod : sum of expense.amount for expenses registered within the period
+ *  - arAtPeriodEnd         : sum of invoice.balance for every invoice issued on or before
+ *                            periodEnd (balance is the current outstanding amount)
+ *  - arAtPeriodStart       : derived via accounting identity:
+ *                            AR_end = AR_start + Invoiced_in_period − Paid_in_period
+ *                            ⟹ AR_start = AR_end − Invoiced_in_period + Paid_in_period
+ *
+ * @param allInvoices    Every invoice fetched (no date filter) — used to compute AR
  * @param periodInvoices Invoices issued during the report period
  * @param periodPayments Payments received during the report period
  * @param periodExpenses Expenses registered during the report period
- * @param periodStart   Start date of the report period
- * @param periodEnd     End date of the report period
- * @param title         Report title
- * @param generatedAt   Report generation timestamp
+ * @param allClients     All clients (used to resolve client → group)
+ * @param clientGroups   All client groups from Invoice Ninja group_settings
+ * @param periodStart    Start date of the report period
+ * @param periodEnd      End date of the report period
+ * @param title          Report title
+ * @param generatedAt    Report generation timestamp
  */
 export function buildHoaReportData(
   allInvoices: Invoice[],
   periodInvoices: Invoice[],
   periodPayments: Payment[],
   periodExpenses: Expense[],
+  allClients: Client[],
+  clientGroups: ClientGroup[],
   periodStart: Date,
   periodEnd: Date,
   title: string,
   generatedAt: Date
 ): HoaReportData {
+  // --- Lookup helpers ---
+  // clientById: id → Client
+  const clientById = new Map<string, Client>(allClients.map(c => [c.id, c]));
+  // groupNameById: group id → group name
+  const groupNameById = new Map<string, string>(clientGroups.map(g => [g.id, g.name]));
+
+  /** Resolve a client_id to its group name, falling back through client_name lookup */
+  function resolveGroup(clientId: string | undefined, clientName: string | undefined): string {
+    if (clientId) {
+      const client = clientById.get(clientId);
+      if (client?.group_settings_id) {
+        return groupNameById.get(client.group_settings_id) ?? NO_GROUP_LABEL;
+      }
+    }
+    // If no client_id, try to find the client by name
+    if (clientName) {
+      const clientByName = allClients.find(c => c.name === clientName);
+      if (clientByName?.group_settings_id) {
+        return groupNameById.get(clientByName.group_settings_id) ?? NO_GROUP_LABEL;
+      }
+    }
+    return NO_GROUP_LABEL;
+  }
+
   // --- Totals for the period ---
   const totalInvoicedInPeriod = periodInvoices.reduce(
     (sum, inv) => sum + parseFloat(String(inv.amount || 0)),
@@ -102,26 +143,26 @@ export function buildHoaReportData(
   // => AR_start = AR_end - Invoices_in_period + Payments_in_period
   const arAtPeriodStart = arAtPeriodEnd - totalInvoicedInPeriod + totalPaymentsInPeriod;
 
-  // --- Payments by client ---
-  const paymentClientMap: Record<string, number> = {};
+  // --- Payments by client group ---
+  const paymentGroupMap: Record<string, number> = {};
   periodPayments.forEach(p => {
-    const client = p.client_name || p.client?.name || 'Unknown Client';
-    paymentClientMap[client] = (paymentClientMap[client] || 0) + parseFloat(String(p.amount || 0));
+    const group = resolveGroup(p.client_id, p.client_name || p.client?.name);
+    paymentGroupMap[group] = (paymentGroupMap[group] || 0) + parseFloat(String(p.amount || 0));
   });
-  const paymentsByClient: PaymentsByClient[] = Object.entries(paymentClientMap)
-    .map(([clientName, total]) => ({ clientName, total }))
+  const paymentsByGroup: PaymentsByGroup[] = Object.entries(paymentGroupMap)
+    .map(([groupName, total]) => ({ groupName, total }))
     .sort((a, b) => b.total - a.total);
 
-  // --- AR by client at end of period ---
-  const arClientMap: Record<string, number> = {};
+  // --- AR by client group at end of period ---
+  const arGroupMap: Record<string, number> = {};
   invoicesIssuedByPeriodEnd.forEach(inv => {
     const balance = parseFloat(String(inv.balance || 0));
     if (balance <= 0) return;
-    const client = inv.client_name || inv.client?.name || 'Unknown Client';
-    arClientMap[client] = (arClientMap[client] || 0) + balance;
+    const group = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
+    arGroupMap[group] = (arGroupMap[group] || 0) + balance;
   });
-  const arByClient: ArByClient[] = Object.entries(arClientMap)
-    .map(([clientName, balance]) => ({ clientName, balance }))
+  const arByGroup: ArByGroup[] = Object.entries(arGroupMap)
+    .map(([groupName, balance]) => ({ groupName, balance }))
     .sort((a, b) => b.balance - a.balance);
 
   return {
@@ -134,8 +175,8 @@ export function buildHoaReportData(
     totalExpensesInPeriod,
     arAtPeriodStart: Math.max(0, arAtPeriodStart),
     arAtPeriodEnd,
-    paymentsByClient,
-    arByClient
+    paymentsByGroup,
+    arByGroup
   };
 }
 
