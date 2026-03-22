@@ -201,9 +201,9 @@ class HoaReportGenerator {
 
     // ── Stacked chart data (serialised server-side for safe embedding) ──────
     const paymentsLabels  = JSON.stringify(paymentsByGroup.map(p => p.groupName));
-    const payments0_30    = JSON.stringify(paymentsByGroup.map(p => p.aged0_30));
-    const payments31_90   = JSON.stringify(paymentsByGroup.map(p => p.aged31_90));
-    const payments90plus  = JSON.stringify(paymentsByGroup.map(p => p.aged90plus));
+    const payments0_35    = JSON.stringify(paymentsByGroup.map(p => p.aged0_35));
+    const payments36_95   = JSON.stringify(paymentsByGroup.map(p => p.aged36_95));
+    const payments96plus  = JSON.stringify(paymentsByGroup.map(p => p.aged96plus));
 
     const arLabels   = JSON.stringify(arByGroup.map(a => a.groupName));
     const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_90));
@@ -404,8 +404,8 @@ class HoaReportGenerator {
   (function () {
     'use strict';
 
-    /* ── Payments stacked bar: green / yellow / orange ── */
-    function buildPaymentsChart(canvasId, labels, d0_30, d31_90, d90plus) {
+    /* ── Payments stacked bar: green / light orange / dark orange ── */
+    function buildPaymentsChart(canvasId, labels, d0_35, d36_95, d96plus) {
       var el = document.getElementById(canvasId);
       if (!el) return;
       new Chart(el, {
@@ -413,9 +413,9 @@ class HoaReportGenerator {
         data: {
           labels: labels,
           datasets: [
-            { label: '\\u2264 30 d\\u00edas',  data: d0_30,   backgroundColor: '#22c55e', borderWidth: 0 },
-            { label: '31\\u201390 d\\u00edas', data: d31_90,  backgroundColor: '#fbbf24', borderWidth: 0 },
-            { label: '> 90 d\\u00edas',        data: d90plus, backgroundColor: '#f97316', borderWidth: 0 }
+            { label: '\\u2264 35 d\\u00edas',   data: d0_35,   backgroundColor: '#22c55e', borderWidth: 0 },
+            { label: '36\\u201395 d\\u00edas',  data: d36_95,  backgroundColor: '#fb923c', borderWidth: 0 },
+            { label: '\\u2265 96 d\\u00edas',   data: d96plus, backgroundColor: '#ea580c', borderWidth: 0 }
           ]
         },
         options: {
@@ -484,7 +484,7 @@ class HoaReportGenerator {
       });
     }
 
-    buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_30}, ${payments31_90}, ${payments90plus});
+    buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
     buildArChart('chart-ar', ${arLabels}, ${ar0_90}, ${ar90plus}, ${arMora});
 
     window.chartsReady = true;

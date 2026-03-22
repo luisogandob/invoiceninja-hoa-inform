@@ -48,12 +48,12 @@ export interface PaymentsByGroup {
   groupName: string;
   /** Sum of all aging buckets */
   total: number;
-  /** Payments applied to invoices aged ≤30 days at time of payment (green) */
-  aged0_30: number;
-  /** Payments applied to invoices aged 31-90 days at time of payment (yellow) */
-  aged31_90: number;
-  /** Payments applied to invoices aged >90 days at time of payment (orange) */
-  aged90plus: number;
+  /** Payments applied to invoices aged ≤35 days at time of payment (green) */
+  aged0_35: number;
+  /** Payments applied to invoices aged 36-95 days at time of payment (light orange) */
+  aged36_95: number;
+  /** Payments applied to invoices aged ≥96 days at time of payment (dark orange) */
+  aged96plus: number;
 }
 
 export interface ArByGroup {
@@ -197,13 +197,13 @@ export function buildHoaReportData(
   });
 
   // --- Payments by client group with aging buckets ---
-  interface GroupPayments { aged0_30: number; aged31_90: number; aged90plus: number; }
+  interface GroupPayments { aged0_35: number; aged36_95: number; aged96plus: number; }
   const paymentGroupMap: Record<string, GroupPayments> = {};
 
   periodPayments.forEach(p => {
     const group = resolveGroup(p.client_id, p.client_name || p.client?.name);
     if (!paymentGroupMap[group]) {
-      paymentGroupMap[group] = { aged0_30: 0, aged31_90: 0, aged90plus: 0 };
+      paymentGroupMap[group] = { aged0_35: 0, aged36_95: 0, aged96plus: 0 };
     }
 
     const paymentDate = (() => {
@@ -220,31 +220,31 @@ export function buildHoaReportData(
         const amount = parseFloat(String(li.amount || 0));
         if (invDate) {
           const age = Math.max(0, differenceInDays(paymentDate, invDate));
-          if (age <= 30) {
-            paymentGroupMap[group].aged0_30 += amount;
-          } else if (age <= 90) {
-            paymentGroupMap[group].aged31_90 += amount;
+          if (age <= 35) {
+            paymentGroupMap[group].aged0_35 += amount;
+          } else if (age <= 95) {
+            paymentGroupMap[group].aged36_95 += amount;
           } else {
-            paymentGroupMap[group].aged90plus += amount;
+            paymentGroupMap[group].aged96plus += amount;
           }
         } else {
-          paymentGroupMap[group].aged0_30 += amount; // unknown invoice age → treat as current
+          paymentGroupMap[group].aged0_35 += amount; // unknown invoice age → treat as current
         }
       });
     } else {
       // No linked-invoice detail → treat full payment as current
       const amount = parseFloat(String(p.amount || 0));
-      paymentGroupMap[group].aged0_30 += amount;
+      paymentGroupMap[group].aged0_35 += amount;
     }
   });
 
   const paymentsByGroup: PaymentsByGroup[] = Object.entries(paymentGroupMap)
     .map(([groupName, b]) => ({
       groupName,
-      total: b.aged0_30 + b.aged31_90 + b.aged90plus,
-      aged0_30:   b.aged0_30,
-      aged31_90:  b.aged31_90,
-      aged90plus: b.aged90plus
+      total: b.aged0_35 + b.aged36_95 + b.aged96plus,
+      aged0_35:   b.aged0_35,
+      aged36_95:  b.aged36_95,
+      aged96plus: b.aged96plus
     }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
