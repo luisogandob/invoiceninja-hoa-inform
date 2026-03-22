@@ -80,6 +80,7 @@ class HoaReportGenerator {
       generatedAt,
       totalInvoicedInPeriod,
       totalPaymentsInPeriod,
+      totalExpensesInPeriod,
       arAtPeriodStart,
       arAtPeriodEnd,
       paymentsByClient,
@@ -149,6 +150,15 @@ class HoaReportGenerator {
     .kpi-payments  { background: #ebf5fb; color: #1a5276; }
     .kpi-ar-start  { background: #fef9e7; color: #7d6608; }
     .kpi-ar-end    { background: #fdf2e9; color: #a04000; }
+    .kpi-expenses  { background: #fbeaea; color: #922b21; }
+
+    /* ── Centered single-card row ── */
+    .kpi-single {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 40px;
+    }
+    .kpi-single .kpi-card { width: 50%; }
 
     /* ── Section titles ── */
     .section-title {
@@ -191,6 +201,14 @@ class HoaReportGenerator {
     <div class="kpi-card kpi-ar-end">
       <div class="kpi-label">Cuentas x Cobrar — Final del Período</div>
       <div class="kpi-value">$${fmt(arAtPeriodEnd)}</div>
+    </div>
+  </div>
+
+  <!-- ── KPI: Total Expenses ── -->
+  <div class="kpi-single">
+    <div class="kpi-card kpi-expenses">
+      <div class="kpi-label">Gastos del Período</div>
+      <div class="kpi-value">$${fmt(totalExpensesInPeriod)}</div>
     </div>
   </div>
 

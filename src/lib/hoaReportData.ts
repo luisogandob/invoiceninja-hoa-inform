@@ -1,5 +1,5 @@
 import { parseISO, isWithinInterval, isBefore, isEqual } from 'date-fns';
-import type { Invoice, Payment } from './invoiceNinjaClient.js';
+import type { Invoice, Payment, Expense } from './invoiceNinjaClient.js';
 
 /**
  * Aggregated data needed to build the HOA income report.
@@ -18,6 +18,8 @@ export interface HoaReportData {
   totalInvoicedInPeriod: number;
   /** Total payments received during the period */
   totalPaymentsInPeriod: number;
+  /** Total expenses registered during the period */
+  totalExpensesInPeriod: number;
   /** Accounts receivable at the START of the period */
   arAtPeriodStart: number;
   /** Accounts receivable at the END of the period */
@@ -45,6 +47,7 @@ export interface ArByClient {
  * @param allInvoices   Every invoice fetched (no date filter) — used to compute AR
  * @param periodInvoices Invoices issued during the report period
  * @param periodPayments Payments received during the report period
+ * @param periodExpenses Expenses registered during the report period
  * @param periodStart   Start date of the report period
  * @param periodEnd     End date of the report period
  * @param title         Report title
@@ -54,6 +57,7 @@ export function buildHoaReportData(
   allInvoices: Invoice[],
   periodInvoices: Invoice[],
   periodPayments: Payment[],
+  periodExpenses: Expense[],
   periodStart: Date,
   periodEnd: Date,
   title: string,
@@ -67,6 +71,11 @@ export function buildHoaReportData(
 
   const totalPaymentsInPeriod = periodPayments.reduce(
     (sum, p) => sum + parseFloat(String(p.amount || 0)),
+    0
+  );
+
+  const totalExpensesInPeriod = periodExpenses.reduce(
+    (sum, e) => sum + parseFloat(String(e.amount || 0)),
     0
   );
 
@@ -122,6 +131,7 @@ export function buildHoaReportData(
     generatedAt,
     totalInvoicedInPeriod,
     totalPaymentsInPeriod,
+    totalExpensesInPeriod,
     arAtPeriodStart: Math.max(0, arAtPeriodStart),
     arAtPeriodEnd,
     paymentsByClient,

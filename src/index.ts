@@ -10,6 +10,7 @@ import {
   getDateRange,
   filterInvoicesByDate,
   filterPaymentsByDate,
+  filterExpensesByDate,
   formatPeriodString
 } from './lib/dataUtils.js';
 
@@ -107,6 +108,13 @@ class HOAInformAutomation {
       });
       const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
 
+      console.log('Fetching expenses for period...');
+      const periodExpenses = await this.invoiceNinja.getExpenses({
+        start_date: dateRange.startISO,
+        end_date: dateRange.endISO
+      });
+      const filteredPeriodExpenses = filterExpensesByDate(periodExpenses, dateRange.start, dateRange.end);
+
       console.log('Fetching all invoices for AR calculation...');
       const allInvoices = await this.invoiceNinja.getInvoices({});
 
@@ -115,6 +123,7 @@ class HOAInformAutomation {
         allInvoices,
         filteredPeriodInvoices,
         filteredPeriodPayments,
+        filteredPeriodExpenses,
         dateRange.start,
         dateRange.end,
         reportTitle,
@@ -123,6 +132,7 @@ class HOAInformAutomation {
 
       console.log(`Cuotas emitidas: $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
       console.log(`Pagos recibidos: $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
+      console.log(`Gastos:          $${reportData.totalExpensesInPeriod.toFixed(2)}`);
       console.log(`CxC inicio:      $${reportData.arAtPeriodStart.toFixed(2)}`);
       console.log(`CxC final:       $${reportData.arAtPeriodEnd.toFixed(2)}`);
 
@@ -141,6 +151,7 @@ class HOAInformAutomation {
         '',
         `Cuotas Emitidas en el Período:           $${reportData.totalInvoicedInPeriod.toFixed(2)}`,
         `Pagos Recibidos en el Período:           $${reportData.totalPaymentsInPeriod.toFixed(2)}`,
+        `Gastos del Período:                      $${reportData.totalExpensesInPeriod.toFixed(2)}`,
         `Cuentas x Cobrar al Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`,
         `Cuentas x Cobrar al Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}`,
         '',
@@ -213,9 +224,16 @@ class HOAInformAutomation {
       });
       const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
 
+      const periodExpenses = await this.invoiceNinja.getExpenses({
+        start_date: dateRange.startISO,
+        end_date: dateRange.endISO
+      });
+      const filteredPeriodExpenses = filterExpensesByDate(periodExpenses, dateRange.start, dateRange.end);
+
       const allInvoices = await this.invoiceNinja.getInvoices({});
       console.log(`   Facturas en período: ${filteredPeriodInvoices.length}`);
       console.log(`   Pagos en período:    ${filteredPeriodPayments.length}`);
+      console.log(`   Gastos en período:   ${filteredPeriodExpenses.length}`);
       console.log(`   Total facturas:      ${allInvoices.length}\n`);
 
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
@@ -223,6 +241,7 @@ class HOAInformAutomation {
         allInvoices,
         filteredPeriodInvoices,
         filteredPeriodPayments,
+        filteredPeriodExpenses,
         dateRange.start,
         dateRange.end,
         reportTitle,
@@ -232,6 +251,7 @@ class HOAInformAutomation {
       console.log('📊 TOTALES:');
       console.log(`   Cuotas Emitidas en el Período:          $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
       console.log(`   Pagos Recibidos en el Período:          $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
+      console.log(`   Gastos del Período:                     $${reportData.totalExpensesInPeriod.toFixed(2)}`);
       console.log(`   Cuentas x Cobrar — Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`);
       console.log(`   Cuentas x Cobrar — Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}\n`);
 
