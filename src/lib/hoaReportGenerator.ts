@@ -1,22 +1,58 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import { format } from 'date-fns';
+import { readFileSync } from 'fs';
+import { createRequire } from 'module';
 import type { HoaReportData } from './hoaReportData.js';
+
+const _require = createRequire(import.meta.url);
+
+/** Milliseconds to wait for Chart.js to finish rendering all canvases. */
+const CHART_RENDER_TIMEOUT_MS = 15_000;
+
+// ---------------------------------------------------------------------------
+// Inline bundle cache — read once, reuse for every PDF generated
+// ---------------------------------------------------------------------------
+
+let _chartJsBundle: string | null = null;
+let _colorSchemesBundle: string | null = null;
+
+function getChartJs(): string {
+  if (_chartJsBundle === null) {
+    _chartJsBundle = readFileSync(
+      _require.resolve('chart.js/dist/Chart.min.js'),
+      'utf-8'
+    );
+  }
+  return _chartJsBundle;
+}
+
+function getColorSchemes(): string {
+  if (_colorSchemesBundle === null) {
+    _colorSchemesBundle = readFileSync(
+      _require.resolve('chartjs-plugin-colorschemes/dist/chartjs-plugin-colorschemes.min.js'),
+      'utf-8'
+    );
+  }
+  return _colorSchemesBundle;
+}
 
 /**
  * HOA Report PDF Generator (new report format).
  *
- * Uses Puppeteer directly to render the HTML template to PDF.
- * The browser instance is reused across multiple calls and must be
- * released by calling `close()` when no longer needed.
+ * Uses Puppeteer to render an HTML page to PDF.  All charts (bar charts) and
+ * KPI big-number displays are rendered with Chart.js.  The color palette is
+ * driven by the `CHART_COLOR_SCHEME` env variable (default: `brewer.Paired12`).
  *
- * Sections:
- *  1. Header  — title, period dates, generation date
- *  2. Totals  — four big-number KPI cards
- *  3. Bar chart — Payments received in period, by client
- *  4. Bar chart — Accounts receivable at end of period, by client
+ * The browser instance is reused across multiple calls and must be released
+ * by calling `close()` when no longer needed.
  */
 class HoaReportGenerator {
   private browser: Browser | null = null;
+  private readonly colorScheme: string;
+
+  constructor() {
+    this.colorScheme = process.env.CHART_COLOR_SCHEME ?? 'brewer.Paired12';
+  }
 
   private async getBrowser(): Promise<Browser> {
     if (!this.browser) {
@@ -35,6 +71,8 @@ class HoaReportGenerator {
     const page = await browser.newPage();
     try {
       await page.setContent(html, { waitUntil: 'load' });
+      // Wait for Chart.js to finish rendering all canvases
+      await page.waitForFunction('window.chartsReady === true', { timeout: CHART_RENDER_TIMEOUT_MS });
 
       const pdf = await page.pdf({
         format: 'A4',
@@ -87,17 +125,35 @@ class HoaReportGenerator {
       arByGroup
     } = data;
 
-    const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmt = (n: number) =>
+      n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-    const paymentsChartSvg = this.buildVerticalBarChart(
-      paymentsByGroup.map(p => ({ label: p.groupName, value: p.total })),
-      '#3498db'
-    );
+    // JSON-serialised data for bar charts (safe string escaping via JSON.stringify)
+    const paymentsLabels = JSON.stringify(paymentsByGroup.map(p => p.groupName));
+    const paymentsValues = JSON.stringify(paymentsByGroup.map(p => p.total));
+    const arLabels       = JSON.stringify(arByGroup.map(a => a.groupName));
+    const arValues       = JSON.stringify(arByGroup.map(a => a.balance));
 
-    const arChartSvg = this.buildVerticalBarChart(
-      arByGroup.map(a => ({ label: a.groupName, value: a.balance })),
-      '#e67e22'
-    );
+    // KPI card definitions passed to Chart.js as JSON
+    const kpiData = JSON.stringify([
+      { id: 'kpi-invoiced', lines: ['Cuotas Emitidas', 'en el Período'],       value: `$${fmt(totalInvoicedInPeriod)}`  },
+      { id: 'kpi-payments', lines: ['Pagos Recibidos', 'en el Período'],       value: `$${fmt(totalPaymentsInPeriod)}`  },
+      { id: 'kpi-ar-start', lines: ['Cuentas x Cobrar', 'Inicio del Período'], value: `$${fmt(arAtPeriodStart)}`        },
+      { id: 'kpi-ar-end',   lines: ['Cuentas x Cobrar', 'Final del Período'],  value: `$${fmt(arAtPeriodEnd)}`          },
+      { id: 'kpi-expenses', lines: ['Gastos', 'del Período'],                  value: `$${fmt(totalExpensesInPeriod)}`  }
+    ]);
+
+    const colorSchemeJson = JSON.stringify(this.colorScheme);
+
+    // Warn early (server-side) when the scheme string looks invalid so users
+    // notice the issue in the logs rather than silently getting the fallback.
+    const [schemeGroup, schemeKey] = this.colorScheme.split('.');
+    if (!schemeGroup || !schemeKey) {
+      console.warn(
+        `[HoaReportGenerator] CHART_COLOR_SCHEME "${this.colorScheme}" is not in the expected ` +
+        `"group.SchemeName" format (e.g. "brewer.Paired12"). Using fallback palette.`
+      );
+    }
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -115,50 +171,18 @@ class HoaReportGenerator {
       padding-bottom: 18px;
       margin-bottom: 32px;
     }
-    .report-header h1 {
-      font-size: 26px;
-      color: #2c3e50;
-      margin-bottom: 8px;
-    }
+    .report-header h1 { font-size: 26px; color: #2c3e50; margin-bottom: 8px; }
     .report-header .meta { font-size: 13px; color: #7f8c8d; margin-top: 4px; }
 
-    /* ── KPI cards ── */
+    /* ── KPI grid ── */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 16px;
-      margin-bottom: 40px;
+      margin-bottom: 24px;
     }
-    .kpi-card {
-      border-radius: 8px;
-      padding: 20px 24px;
-      text-align: center;
-    }
-    .kpi-card .kpi-label {
-      font-size: 12px;
-      font-weight: bold;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 10px;
-      opacity: 0.85;
-    }
-    .kpi-card .kpi-value {
-      font-size: 30px;
-      font-weight: bold;
-    }
-    .kpi-invoiced  { background: #eafaf1; color: #1e8449; }
-    .kpi-payments  { background: #ebf5fb; color: #1a5276; }
-    .kpi-ar-start  { background: #fef9e7; color: #7d6608; }
-    .kpi-ar-end    { background: #fdf2e9; color: #a04000; }
-    .kpi-expenses  { background: #fbeaea; color: #922b21; }
-
-    /* ── Centered single-card row ── */
-    .kpi-single {
-      display: flex;
-      justify-content: center;
-      margin-bottom: 40px;
-    }
-    .kpi-single .kpi-card { width: 50%; }
+    .kpi-card { display: flex; justify-content: center; align-items: center; }
+    .kpi-single { display: flex; justify-content: center; margin-bottom: 40px; }
 
     /* ── Section titles ── */
     .section-title {
@@ -172,7 +196,10 @@ class HoaReportGenerator {
 
     /* ── Chart wrapper ── */
     .chart-section { margin-bottom: 40px; }
-    .chart-section svg { width: 100%; height: auto; }
+    .chart-section canvas { display: block; margin: 0 auto; }
+
+    /* ── No data ── */
+    .no-data { color: #95a5a6; font-size: 13px; text-align: center; padding: 24px 0; }
   </style>
 </head>
 <body>
@@ -184,111 +211,176 @@ class HoaReportGenerator {
     <div class="meta">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
   </div>
 
-  <!-- ── KPI Totals ── -->
+  <!-- ── KPI big numbers (2×2 grid) ── -->
   <div class="kpi-grid">
-    <div class="kpi-card kpi-invoiced">
-      <div class="kpi-label">Cuotas Emitidas en el Período</div>
-      <div class="kpi-value">$${fmt(totalInvoicedInPeriod)}</div>
-    </div>
-    <div class="kpi-card kpi-payments">
-      <div class="kpi-label">Pagos Recibidos en el Período</div>
-      <div class="kpi-value">$${fmt(totalPaymentsInPeriod)}</div>
-    </div>
-    <div class="kpi-card kpi-ar-start">
-      <div class="kpi-label">Cuentas x Cobrar — Inicio del Período</div>
-      <div class="kpi-value">$${fmt(arAtPeriodStart)}</div>
-    </div>
-    <div class="kpi-card kpi-ar-end">
-      <div class="kpi-label">Cuentas x Cobrar — Final del Período</div>
-      <div class="kpi-value">$${fmt(arAtPeriodEnd)}</div>
-    </div>
+    <div class="kpi-card"><canvas id="kpi-invoiced" width="310" height="230"></canvas></div>
+    <div class="kpi-card"><canvas id="kpi-payments" width="310" height="230"></canvas></div>
+    <div class="kpi-card"><canvas id="kpi-ar-start" width="310" height="230"></canvas></div>
+    <div class="kpi-card"><canvas id="kpi-ar-end"   width="310" height="230"></canvas></div>
   </div>
 
-  <!-- ── KPI: Total Expenses ── -->
+  <!-- ── KPI: Gastos (centered) ── -->
   <div class="kpi-single">
-    <div class="kpi-card kpi-expenses">
-      <div class="kpi-label">Gastos del Período</div>
-      <div class="kpi-value">$${fmt(totalExpensesInPeriod)}</div>
-    </div>
+    <div class="kpi-card"><canvas id="kpi-expenses" width="310" height="230"></canvas></div>
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group ── -->
   <div class="chart-section">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
-    ${paymentsChartSvg}
+    ${paymentsByGroup.length > 0
+      ? '<canvas id="chart-payments" width="680" height="300"></canvas>'
+      : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
   <!-- ── Bar Chart: AR by Client Group ── -->
   <div class="chart-section">
     <div class="section-title">Cuentas x Cobrar al Final del Período por Grupo de Clientes</div>
-    ${arChartSvg}
+    ${arByGroup.length > 0
+      ? '<canvas id="chart-ar" width="680" height="300"></canvas>'
+      : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
+
+  <!-- ── Chart.js + chartjs-plugin-colorschemes (inlined) ── -->
+  <script>${getChartJs()}</script>
+  <script>${getColorSchemes()}</script>
+  <script>
+  (function () {
+    'use strict';
+
+    /* ── Resolve color palette from the configured scheme ── */
+    var scheme = ${colorSchemeJson};
+    var parts   = scheme.split('.');
+    var palette = (
+      Chart.colorschemes &&
+      Chart.colorschemes[parts[0]] &&
+      Chart.colorschemes[parts[0]][parts[1]]
+    ) || (function () {
+      console.warn('[HoaReport] Color scheme "' + scheme + '" not found; using fallback palette.');
+      return ['#3498db','#e74c3c','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#2980b9'];
+    }());
+
+    function getColor(i) { return palette[i % palette.length]; }
+
+    /* ── Center-text plugin: renders label + value inside a doughnut hole ── */
+    Chart.plugins.register({
+      id: 'centerText',
+      afterDraw: function (chart) {
+        var ct = chart.config.options.centerText;
+        if (!ct) return;
+
+        var ctx    = chart.chart.ctx;
+        var cx     = (chart.chartArea.left + chart.chartArea.right)  / 2;
+        var cy     = (chart.chartArea.top  + chart.chartArea.bottom) / 2;
+        var lines  = ct.lines || [];
+
+        var labelSize = 10;
+        var valueSize = 20;
+        var lineH     = 14;
+        var gap       = 5;
+        var totalH    = lines.length * lineH + gap + valueSize;
+        var y         = cy - totalH / 2;
+
+        ctx.save();
+        ctx.textAlign    = 'center';
+        ctx.textBaseline = 'top';
+
+        /* label lines */
+        ctx.fillStyle = 'rgba(255,255,255,0.88)';
+        ctx.font      = 'bold ' + labelSize + 'px Arial, sans-serif';
+        lines.forEach(function (line) {
+          ctx.fillText(line, cx, y);
+          y += lineH;
+        });
+
+        y += gap;
+
+        /* value */
+        ctx.fillStyle = '#ffffff';
+        ctx.font      = 'bold ' + valueSize + 'px Arial, sans-serif';
+        ctx.fillText(ct.value, cx, y);
+
+        ctx.restore();
+      }
+    });
+
+    /* ── KPI doughnut big-number cards ── */
+    var kpiData = ${kpiData};
+    kpiData.forEach(function (kpi, index) {
+      var el = document.getElementById(kpi.id);
+      if (!el) return;
+      new Chart(el, {
+        type: 'doughnut',
+        data: {
+          datasets: [{
+            data: [1],
+            backgroundColor: [getColor(index)],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          cutoutPercentage: 72,
+          responsive:  false,
+          legend:      { display: false },
+          tooltips:    { enabled: false },
+          animation:   { duration: 0 },
+          centerText:  { lines: kpi.lines, value: kpi.value }
+        }
+      });
+    });
+
+    /* ── Bar chart helper ── */
+    function buildBarChart(canvasId, labels, values) {
+      var el = document.getElementById(canvasId);
+      if (!el) return;
+      new Chart(el, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: values,
+            backgroundColor: values.map(function (_, i) { return getColor(i); }),
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: false,
+          legend:     { display: false },
+          animation:  { duration: 0 },
+          scales: {
+            yAxes: [{
+              ticks: {
+                beginAtZero: true,
+                callback: function (v) {
+                  return '$' + v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+                }
+              }
+            }],
+            xAxes: [{
+              ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 }
+            }]
+          },
+          tooltips: {
+            callbacks: {
+              label: function (item) {
+                return '$' + item.yLabel.toLocaleString('en-US', {
+                  minimumFractionDigits: 2, maximumFractionDigits: 2
+                });
+              }
+            }
+          }
+        }
+      });
+    }
+
+    buildBarChart('chart-payments', ${paymentsLabels}, ${paymentsValues});
+    buildBarChart('chart-ar',       ${arLabels},       ${arValues});
+
+    window.chartsReady = true;
+  }());
+  </script>
 
 </body>
 </html>`;
-  }
-
-  // ---------------------------------------------------------------------------
-  // SVG vertical bar-chart helper
-  // ---------------------------------------------------------------------------
-
-  private buildVerticalBarChart(
-    items: Array<{ label: string; value: number }>,
-    barColor: string
-  ): string {
-    if (items.length === 0) {
-      return `<p style="color:#95a5a6;font-size:13px;text-align:center;padding:24px 0;">Sin datos para este período.</p>`;
-    }
-
-    const maxValue = Math.max(...items.map(i => i.value), 1);
-
-    // Chart dimensions (viewBox units)
-    const svgWidth = 700;
-    const leftPad = 10;
-    const rightPad = 10;
-    const topPad = 30;    // room for value labels above bars
-    const chartH = 180;   // height of the bar drawing area
-    const bottomPad = 60; // room for group name labels below bars
-
-    const svgHeight = topPad + chartH + bottomPad;
-    const barAreaWidth = svgWidth - leftPad - rightPad;
-    const n = items.length;
-    const slotWidth = barAreaWidth / n;
-    const barWidth = Math.min(80, slotWidth * 0.65);
-    const baselineY = topPad + chartH;
-
-    // Horizontal grid lines (at 25%, 50%, 75%, 100% of max)
-    const gridLines = [0.25, 0.5, 0.75, 1.0].map(frac => {
-      const y = topPad + chartH * (1 - frac);
-      const amt = maxValue * frac;
-      const label = `$${amt.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-      return `
-    <line x1="${leftPad}" y1="${y}" x2="${svgWidth - rightPad}" y2="${y}" stroke="#ecf0f1" stroke-width="1"/>
-    <text x="${leftPad}" y="${y - 3}" font-size="9" fill="#bdc3c7">${this.esc(label)}</text>`;
-    }).join('');
-
-    const bars = items.map((item, i) => {
-      const barH = Math.max(2, (item.value / maxValue) * chartH);
-      const barX = leftPad + i * slotWidth + (slotWidth - barWidth) / 2;
-      const barY = baselineY - barH;
-      const cx = barX + barWidth / 2;
-
-      const valueText = `$${item.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      const labelText = this.truncate(item.label, 16);
-
-      // Rotate label -30° around its anchor point to avoid overlap
-      return `
-    <rect x="${barX}" y="${barY}" width="${barWidth}" height="${barH}" fill="${barColor}" rx="3"/>
-    <text x="${cx}" y="${barY - 5}" text-anchor="middle" font-size="10" fill="#2c3e50">${this.esc(valueText)}</text>
-    <text x="${cx}" y="${baselineY + 12}" text-anchor="middle" font-size="11" fill="#2c3e50"
-          transform="rotate(-35,${cx},${baselineY + 12})">${this.esc(labelText)}</text>`;
-    }).join('');
-
-    return `<svg viewBox="0 0 ${svgWidth} ${svgHeight}" xmlns="http://www.w3.org/2000/svg">
-  ${gridLines}
-  <line x1="${leftPad}" y1="${baselineY}" x2="${svgWidth - rightPad}" y2="${baselineY}" stroke="#d5d8dc" stroke-width="1.5"/>
-  ${bars}
-</svg>`;
   }
 
   // ---------------------------------------------------------------------------
@@ -302,10 +394,6 @@ class HoaReportGenerator {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
-  }
-
-  private truncate(text: string, maxLen: number): string {
-    return text.length > maxLen ? text.slice(0, maxLen - 1) + '…' : text;
   }
 }
 
