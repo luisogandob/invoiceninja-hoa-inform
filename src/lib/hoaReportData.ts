@@ -151,7 +151,7 @@ export function buildHoaReportData(
   });
   const paymentsByGroup: PaymentsByGroup[] = Object.entries(paymentGroupMap)
     .map(([groupName, total]) => ({ groupName, total }))
-    .sort((a, b) => b.total - a.total);
+    .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   // --- AR by client group at end of period ---
   const arGroupMap: Record<string, number> = {};
@@ -163,7 +163,7 @@ export function buildHoaReportData(
   });
   const arByGroup: ArByGroup[] = Object.entries(arGroupMap)
     .map(([groupName, balance]) => ({ groupName, balance }))
-    .sort((a, b) => b.balance - a.balance);
+    .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   return {
     title,
