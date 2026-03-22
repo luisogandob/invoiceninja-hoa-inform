@@ -1,4 +1,4 @@
-import { parseISO, isBefore, isEqual, differenceInDays } from 'date-fns';
+import { parseISO, isBefore, isAfter, isEqual, differenceInDays } from 'date-fns';
 import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
@@ -26,14 +26,16 @@ export interface HoaReportData {
   arAtPeriodEnd: number;
   /**
    * Accounts payable at the START of the period.
-   * Currently 0 — AP tracking requires the InvoiceNinja Bills module
-   * which is not yet integrated.
+   * Sum of all expenses registered on or before the period start date
+   * that had not yet been paid at that point (no payment_date or
+   * payment_date falls after the period start).
    */
   apAtPeriodStart: number;
   /**
    * Accounts payable at the END of the period.
-   * Currently 0 — AP tracking requires the InvoiceNinja Bills module
-   * which is not yet integrated.
+   * Sum of all expenses registered on or before the period end date
+   * that had not yet been paid as of that date (no payment_date or
+   * payment_date falls after the period end).
    */
   apAtPeriodEnd: number;
 
@@ -90,6 +92,7 @@ const NO_GROUP_LABEL = 'Sin Grupo';
  * @param periodInvoices Invoices issued during the report period
  * @param periodPayments Payments received during the report period
  * @param periodExpenses Expenses registered during the report period
+ * @param allExpenses    Every expense fetched (no date filter) — used to compute AP
  * @param allClients     All clients (used to resolve client → group)
  * @param clientGroups   All client groups from Invoice Ninja group_settings
  * @param periodStart    Start date of the report period
@@ -102,6 +105,7 @@ export function buildHoaReportData(
   periodInvoices: Invoice[],
   periodPayments: Payment[],
   periodExpenses: Expense[],
+  allExpenses: Expense[],
   allClients: Client[],
   clientGroups: ClientGroup[],
   periodStart: Date,
@@ -272,6 +276,44 @@ export function buildHoaReportData(
     }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
+  // --- Accounts payable ---
+  // An expense contributes to AP at a given snapshot date when:
+  //   1. Its date (expense date) is on or before the snapshot date, AND
+  //   2. It has no payment_date (never been paid) OR its payment_date is after
+  //      the snapshot date (it was paid after that point in time).
+
+  /** Returns true when the expense date falls on or before the given boundary */
+  function expenseDatedOnOrBefore(e: Expense, boundary: Date): boolean {
+    const dateStr = e.date || e.expense_date;
+    if (!dateStr) return false;
+    try {
+      const d = parseISO(dateStr);
+      return isBefore(d, boundary) || isEqual(d, boundary);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Returns true when the expense was still unpaid as of the given snapshot date */
+  function expenseUnpaidAsOf(e: Expense, snapshot: Date): boolean {
+    if (!e.payment_date) return true; // no payment date → never paid
+    try {
+      const paid = parseISO(e.payment_date);
+      // Expense is still unpaid as of snapshot only if it was paid AFTER the snapshot
+      return isAfter(paid, snapshot);
+    } catch {
+      return true; // malformed date → treat as unpaid
+    }
+  }
+
+  const apAtPeriodEnd = allExpenses
+    .filter(e => expenseDatedOnOrBefore(e, periodEnd) && expenseUnpaidAsOf(e, periodEnd))
+    .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
+
+  const apAtPeriodStart = allExpenses
+    .filter(e => expenseDatedOnOrBefore(e, periodStart) && expenseUnpaidAsOf(e, periodStart))
+    .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
+
   return {
     title,
     periodStart: formatDate(periodStart),
@@ -282,8 +324,8 @@ export function buildHoaReportData(
     totalExpensesInPeriod,
     arAtPeriodStart,
     arAtPeriodEnd,
-    apAtPeriodStart: 0,
-    apAtPeriodEnd:   0,
+    apAtPeriodStart,
+    apAtPeriodEnd,
     paymentsByGroup,
     arByGroup
   };

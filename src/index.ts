@@ -118,6 +118,9 @@ class HOAInformAutomation {
       console.log('Fetching all invoices for AR calculation...');
       const allInvoices = await this.invoiceNinja.getInvoices({});
 
+      console.log('Fetching all expenses for AP calculation...');
+      const allExpenses = await this.invoiceNinja.getExpenses({});
+
       console.log('Fetching all clients and client groups...');
       const [allClients, clientGroups] = await Promise.all([
         this.invoiceNinja.getClients(),
@@ -130,6 +133,7 @@ class HOAInformAutomation {
         filteredPeriodInvoices,
         filteredPeriodPayments,
         filteredPeriodExpenses,
+        allExpenses,
         allClients,
         clientGroups,
         dateRange.start,
@@ -239,10 +243,12 @@ class HOAInformAutomation {
       const filteredPeriodExpenses = filterExpensesByDate(periodExpenses, dateRange.start, dateRange.end);
 
       const allInvoices = await this.invoiceNinja.getInvoices({});
+      const allExpenses = await this.invoiceNinja.getExpenses({});
       console.log(`   Facturas en período: ${filteredPeriodInvoices.length}`);
       console.log(`   Pagos en período:    ${filteredPeriodPayments.length}`);
       console.log(`   Gastos en período:   ${filteredPeriodExpenses.length}`);
-      console.log(`   Total facturas:      ${allInvoices.length}\n`);
+      console.log(`   Total facturas:      ${allInvoices.length}`);
+      console.log(`   Total gastos:        ${allExpenses.length}\n`);
 
       const [allClients, clientGroups] = await Promise.all([
         this.invoiceNinja.getClients(),
@@ -257,6 +263,7 @@ class HOAInformAutomation {
         filteredPeriodInvoices,
         filteredPeriodPayments,
         filteredPeriodExpenses,
+        allExpenses,
         allClients,
         clientGroups,
         dateRange.start,
@@ -270,7 +277,9 @@ class HOAInformAutomation {
       console.log(`   Pagos Recibidos en el Período:          $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
       console.log(`   Gastos del Período:                     $${reportData.totalExpensesInPeriod.toFixed(2)}`);
       console.log(`   Cuentas x Cobrar — Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`);
-      console.log(`   Cuentas x Cobrar — Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}\n`);
+      console.log(`   Cuentas x Cobrar — Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}`);
+      console.log(`   Cuentas x Pagar  — Inicio del Período:  $${reportData.apAtPeriodStart.toFixed(2)}`);
+      console.log(`   Cuentas x Pagar  — Final del Período:   $${reportData.apAtPeriodEnd.toFixed(2)}\n`);
 
       if (reportData.paymentsByGroup.length > 0) {
         console.log('💵 PAGOS POR GRUPO DE CLIENTES:');

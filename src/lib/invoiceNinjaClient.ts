@@ -28,6 +28,11 @@ export interface Expense {
   amount: number;
   date?: string;
   expense_date?: string;
+  /**
+   * Date this expense was paid by the organisation (YYYY-MM-DD).
+   * Empty string / undefined means the expense has NOT been paid yet.
+   */
+  payment_date?: string;
   public_notes?: string;
   description?: string;
   vendor_name?: string;
