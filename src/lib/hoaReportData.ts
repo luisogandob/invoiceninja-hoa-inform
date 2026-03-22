@@ -212,7 +212,7 @@ export function buildHoaReportData(
       try { return parseISO(s); } catch { return null; }
     })();
 
-    const linkedInvoices = p.invoices;
+    const linkedInvoices = p.paymentables ?? p.invoices;
     if (paymentDate && linkedInvoices && linkedInvoices.length > 0) {
       // Distribute payment by how old each linked invoice was at the time of payment
       linkedInvoices.forEach(li => {

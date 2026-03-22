@@ -5,14 +5,9 @@ import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
+import { createDb, populateDb, queryForReport } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
-import {
-  getDateRange,
-  filterInvoicesByDate,
-  filterPaymentsByDate,
-  filterExpensesByDate,
-  formatPeriodString
-} from './lib/dataUtils.js';
+import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
 
 // Load environment variables
 dotenv.config();
@@ -94,54 +89,50 @@ class HOAInformAutomation {
       const dateRange = getDateRange(period, customRange);
       console.log(`Date range: ${dateRange.startISO} to ${dateRange.endISO}`);
 
-      console.log('Fetching invoices for period...');
-      const periodInvoices = await this.invoiceNinja.getInvoices({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO
-      });
-      const filteredPeriodInvoices = filterInvoicesByDate(periodInvoices, dateRange.start, dateRange.end);
-
-      console.log('Fetching payments for period...');
-      const periodPayments = await this.invoiceNinja.getPayments({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO,
-        include: 'invoices'
-      });
-      const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
-
-      console.log('Fetching expenses for period...');
-      const periodExpenses = await this.invoiceNinja.getExpenses({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO
-      });
-      const filteredPeriodExpenses = filterExpensesByDate(periodExpenses, dateRange.start, dateRange.end);
-
-      console.log('Fetching all invoices for AR calculation...');
-      const allInvoices = await this.invoiceNinja.getInvoices({});
-
-      console.log('Fetching all expenses for AP calculation...');
-      const allExpenses = await this.invoiceNinja.getExpenses({});
-
-      console.log('Fetching all clients and client groups...');
-      const [allClients, clientGroups] = await Promise.all([
-        this.invoiceNinja.getClients(),
-        this.invoiceNinja.getClientGroups()
-      ]);
-
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
-      const reportData = buildHoaReportData(
-        allInvoices,
-        filteredPeriodInvoices,
-        filteredPeriodPayments,
-        filteredPeriodExpenses,
-        allExpenses,
-        allClients,
-        clientGroups,
-        dateRange.start,
-        dateRange.end,
-        reportTitle,
-        new Date()
-      );
+
+      // --- Populate local SQLite database from Invoice Ninja API ---
+      console.log('Populating local database from Invoice Ninja...');
+      const db = createDb(process.env.DB_CACHE_PATH);
+      let reportData;
+      let filteredPeriodInvoicesLength = 0;
+      let filteredPeriodPaymentsLength = 0;
+      let allInvoicesRef: ReturnType<typeof queryForReport>['allInvoices'] = [];
+      try {
+        const stats = await populateDb(db, this.invoiceNinja, dateRange.end, msg => console.log(msg));
+        const elapsed = (stats.elapsedMs / 1000).toFixed(1);
+        console.log(
+          `✓ Base de datos lista en ${elapsed}s: ` +
+          `${stats.invoices} facturas, ${stats.payments} pagos, ${stats.expenses} gastos, ` +
+          `${stats.clients} clientes, ${stats.clientGroups} grupos, ` +
+          `${stats.vendors} proveedores, ${stats.expenseCategories} categorías`
+        );
+
+        const {
+          allInvoices, periodInvoices, periodPayments,
+          periodExpenses, allExpenses, allClients, clientGroups
+        } = queryForReport(db, dateRange.start, dateRange.end);
+
+        allInvoicesRef = allInvoices;
+        filteredPeriodInvoicesLength = periodInvoices.length;
+        filteredPeriodPaymentsLength = periodPayments.length;
+
+        reportData = buildHoaReportData(
+          allInvoices,
+          periodInvoices,
+          periodPayments,
+          periodExpenses,
+          allExpenses,
+          allClients,
+          clientGroups,
+          dateRange.start,
+          dateRange.end,
+          reportTitle,
+          new Date()
+        );
+      } finally {
+        db.close();
+      }
 
       console.log(`Cuotas emitidas: $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
       console.log(`Pagos recibidos: $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
@@ -183,14 +174,14 @@ class HOAInformAutomation {
 
       await this.hoaReportGenerator.close();
 
-      const unpaidCount = allInvoices.filter(inv => parseFloat(String(inv.balance || 0)) > 0).length;
+      const unpaidCount = allInvoicesRef.filter(inv => parseFloat(String(inv.balance || 0)) > 0).length;
 
       return {
         success: true,
         message: 'Report generated and sent successfully',
         stats: {
-          incomeCount: filteredPeriodInvoices.length,
-          paymentCount: filteredPeriodPayments.length,
+          incomeCount: filteredPeriodInvoicesLength,
+          paymentCount: filteredPeriodPaymentsLength,
           unpaidInvoiceCount: unpaidCount,
           totalIncome: reportData.totalInvoicedInPeriod,
           totalPayments: reportData.totalPaymentsInPeriod,
@@ -224,55 +215,57 @@ class HOAInformAutomation {
       const dateRange = getDateRange(period, customRange);
       console.log(`📅 Período: ${dateRange.startISO} → ${dateRange.endISO}\n`);
 
-      console.log('🔄 Fetching data from Invoice Ninja...');
-      const periodInvoices = await this.invoiceNinja.getInvoices({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO
-      });
-      const filteredPeriodInvoices = filterInvoicesByDate(periodInvoices, dateRange.start, dateRange.end);
+      // --- Populate local SQLite database from Invoice Ninja API ---
+      console.log('🔄 Populando base de datos local desde Invoice Ninja...');
+      const db = createDb(process.env.DB_CACHE_PATH);
+      let reportData;
+      let periodInvoicesLen = 0;
+      let periodPaymentsLen = 0;
+      let allInvoicesForStats: ReturnType<typeof queryForReport>['allInvoices'] = [];
+      try {
+        const stats = await populateDb(db, this.invoiceNinja, dateRange.end, msg => console.log(msg));
+        const elapsed = (stats.elapsedMs / 1000).toFixed(1);
+        console.log(
+          `\n✓ Base de datos lista en ${elapsed}s: ` +
+          `${stats.invoices} facturas, ${stats.payments} pagos, ${stats.expenses} gastos, ` +
+          `${stats.clients} clientes, ${stats.clientGroups} grupos, ` +
+          `${stats.vendors} proveedores, ${stats.expenseCategories} categorías\n`
+        );
 
-      const periodPayments = await this.invoiceNinja.getPayments({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO,
-        include: 'invoices'
-      });
-      const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
+        const {
+          allInvoices, periodInvoices, periodPayments,
+          periodExpenses, allExpenses, allClients, clientGroups
+        } = queryForReport(db, dateRange.start, dateRange.end);
 
-      const periodExpenses = await this.invoiceNinja.getExpenses({
-        start_date: dateRange.startISO,
-        end_date: dateRange.endISO
-      });
-      const filteredPeriodExpenses = filterExpensesByDate(periodExpenses, dateRange.start, dateRange.end);
+        allInvoicesForStats  = allInvoices;
+        periodInvoicesLen    = periodInvoices.length;
+        periodPaymentsLen    = periodPayments.length;
 
-      const allInvoices = await this.invoiceNinja.getInvoices({});
-      const allExpenses = await this.invoiceNinja.getExpenses({});
-      console.log(`   Facturas en período: ${filteredPeriodInvoices.length}`);
-      console.log(`   Pagos en período:    ${filteredPeriodPayments.length}`);
-      console.log(`   Gastos en período:   ${filteredPeriodExpenses.length}`);
-      console.log(`   Total facturas:      ${allInvoices.length}`);
-      console.log(`   Total gastos:        ${allExpenses.length}\n`);
+        console.log(`   Facturas en período: ${periodInvoices.length}`);
+        console.log(`   Pagos en período:    ${periodPayments.length}`);
+        console.log(`   Gastos en período:   ${periodExpenses.length}`);
+        console.log(`   Total facturas:      ${allInvoices.length}`);
+        console.log(`   Total gastos:        ${allExpenses.length}`);
+        console.log(`   Clientes totales:    ${allClients.length}`);
+        console.log(`   Grupos de clientes:  ${clientGroups.length}\n`);
 
-      const [allClients, clientGroups] = await Promise.all([
-        this.invoiceNinja.getClients(),
-        this.invoiceNinja.getClientGroups()
-      ]);
-      console.log(`   Clientes totales:    ${allClients.length}`);
-      console.log(`   Grupos de clientes:  ${clientGroups.length}\n`);
-
-      const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
-      const reportData = buildHoaReportData(
-        allInvoices,
-        filteredPeriodInvoices,
-        filteredPeriodPayments,
-        filteredPeriodExpenses,
-        allExpenses,
-        allClients,
-        clientGroups,
-        dateRange.start,
-        dateRange.end,
-        reportTitle,
-        new Date()
-      );
+        const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
+        reportData = buildHoaReportData(
+          allInvoices,
+          periodInvoices,
+          periodPayments,
+          periodExpenses,
+          allExpenses,
+          allClients,
+          clientGroups,
+          dateRange.start,
+          dateRange.end,
+          reportTitle,
+          new Date()
+        );
+      } finally {
+        db.close();
+      }
 
       console.log('📊 TOTALES:');
       console.log(`   Cuotas Emitidas en el Período:          $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
@@ -311,14 +304,14 @@ class HOAInformAutomation {
       console.log('✓ TEST INFORM COMPLETED SUCCESSFULLY');
       console.log('═══════════════════════════════════════════════════════════\n');
 
-      const unpaidCount = allInvoices.filter(inv => parseFloat(String(inv.balance || 0)) > 0).length;
+      const unpaidCount = allInvoicesForStats.filter(inv => parseFloat(String(inv.balance || 0)) > 0).length;
 
       return {
         success: true,
         message: 'Test inform completed successfully',
         stats: {
-          incomeCount: filteredPeriodInvoices.length,
-          paymentCount: filteredPeriodPayments.length,
+          incomeCount: periodInvoicesLen,
+          paymentCount: periodPaymentsLen,
           unpaidInvoiceCount: unpaidCount,
           totalIncome: reportData.totalInvoicedInPeriod,
           totalPayments: reportData.totalPaymentsInPeriod,

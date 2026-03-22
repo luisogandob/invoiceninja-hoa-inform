@@ -1,0 +1,562 @@
+import Database from 'better-sqlite3';
+import { format } from 'date-fns';
+import type InvoiceNinjaClient from './invoiceNinjaClient.js';
+import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
+
+// ---------------------------------------------------------------------------
+// Schema
+// ---------------------------------------------------------------------------
+
+const SCHEMA_SQL = `
+  CREATE TABLE IF NOT EXISTS invoices (
+    id          TEXT    PRIMARY KEY,
+    client_id   TEXT,
+    client_name TEXT,
+    amount      REAL    NOT NULL DEFAULT 0,
+    balance     REAL    NOT NULL DEFAULT 0,
+    date        TEXT,
+    is_deleted  INTEGER NOT NULL DEFAULT 0
+  );
+  -- Filter invoices by date (period queries and AR-at-end-of-period)
+  CREATE INDEX IF NOT EXISTS idx_inv_date    ON invoices(date);
+  -- Join invoices from client-side (group resolution)
+  CREATE INDEX IF NOT EXISTS idx_inv_client  ON invoices(client_id);
+  -- Partial index: only rows with outstanding balance — used for AR lookups
+  CREATE INDEX IF NOT EXISTS idx_inv_balance ON invoices(balance) WHERE balance > 0;
+
+  CREATE TABLE IF NOT EXISTS payments (
+    id          TEXT    PRIMARY KEY,
+    client_id   TEXT,
+    client_name TEXT,
+    amount      REAL    NOT NULL DEFAULT 0,
+    date        TEXT,
+    is_deleted  INTEGER NOT NULL DEFAULT 0
+  );
+  -- Filter payments by date (period queries)
+  CREATE INDEX IF NOT EXISTS idx_pay_date   ON payments(date);
+  -- Group resolution
+  CREATE INDEX IF NOT EXISTS idx_pay_client ON payments(client_id);
+
+  CREATE TABLE IF NOT EXISTS paymentables (
+    payment_id TEXT NOT NULL,
+    invoice_id TEXT NOT NULL,
+    amount     REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (payment_id, invoice_id)
+  );
+  -- Join paymentables → invoices (aging lookup)
+  CREATE INDEX IF NOT EXISTS idx_pmtbl_inv ON paymentables(invoice_id);
+
+  CREATE TABLE IF NOT EXISTS expenses (
+    id           TEXT    PRIMARY KEY,
+    vendor_id    TEXT,
+    category_id  TEXT,
+    amount       REAL    NOT NULL DEFAULT 0,
+    date         TEXT,
+    payment_date TEXT,
+    is_deleted   INTEGER NOT NULL DEFAULT 0
+  );
+  -- Filter expenses by date (period queries)
+  CREATE INDEX IF NOT EXISTS idx_exp_date         ON expenses(date);
+  -- Partial index: unpaid expenses (AP outstanding)
+  CREATE INDEX IF NOT EXISTS idx_exp_unpaid       ON expenses(payment_date) WHERE payment_date IS NULL;
+  -- Filtering / reporting by vendor and category
+  CREATE INDEX IF NOT EXISTS idx_exp_vendor       ON expenses(vendor_id);
+  CREATE INDEX IF NOT EXISTS idx_exp_category     ON expenses(category_id);
+
+  CREATE TABLE IF NOT EXISTS clients (
+    id                TEXT    PRIMARY KEY,
+    name              TEXT,
+    group_settings_id TEXT,
+    is_deleted        INTEGER NOT NULL DEFAULT 0
+  );
+  -- Resolve client → group
+  CREATE INDEX IF NOT EXISTS idx_cli_group ON clients(group_settings_id);
+
+  CREATE TABLE IF NOT EXISTS client_groups (
+    id   TEXT PRIMARY KEY,
+    name TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS vendors (
+    id   TEXT PRIMARY KEY,
+    name TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS expense_categories (
+    id   TEXT PRIMARY KEY,
+    name TEXT
+  );
+`;
+
+// ---------------------------------------------------------------------------
+// Internal row types (SQLite result shapes)
+// ---------------------------------------------------------------------------
+
+interface InvoiceRow {
+  id: string;
+  client_id: string | null;
+  client_name: string | null;
+  amount: number;
+  balance: number;
+  date: string | null;
+  is_deleted: number;
+}
+
+interface PaymentRow {
+  id: string;
+  client_id: string | null;
+  client_name: string | null;
+  amount: number;
+  date: string | null;
+  is_deleted: number;
+}
+
+interface PaymentableRow {
+  payment_id: string;
+  invoice_id: string;
+  amount: number;
+}
+
+interface ExpenseRow {
+  id: string;
+  vendor_id: string | null;
+  category_id: string | null;
+  amount: number;
+  date: string | null;
+  payment_date: string | null;
+  is_deleted: number;
+}
+
+interface ClientRow {
+  id: string;
+  name: string | null;
+  group_settings_id: string | null;
+  is_deleted: number;
+}
+
+interface ClientGroupRow {
+  id: string;
+  name: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/** Statistics returned after populating the local database. */
+export interface PopulateStats {
+  invoices:          number;
+  payments:          number;
+  expenses:          number;
+  clients:           number;
+  clientGroups:      number;
+  vendors:           number;
+  expenseCategories: number;
+  elapsedMs:         number;
+}
+
+/** All data slices required by `buildHoaReportData`. */
+export interface DbQueryResult {
+  /** Every non-deleted invoice issued on or before `periodEnd`. */
+  allInvoices:    Invoice[];
+  /** Non-deleted invoices whose date falls within [periodStart, periodEnd]. */
+  periodInvoices: Invoice[];
+  /** Non-deleted payments received within [periodStart, periodEnd], with `paymentables` populated. */
+  periodPayments: Payment[];
+  /** Non-deleted expenses whose date falls within [periodStart, periodEnd]. */
+  periodExpenses: Expense[];
+  /** Every non-deleted expense (for AP outstanding balance). */
+  allExpenses:    Expense[];
+  /** Every non-deleted client. */
+  allClients:     Client[];
+  /** Every client group. */
+  clientGroups:   ClientGroup[];
+}
+
+// ---------------------------------------------------------------------------
+// DB lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Open (or create) the SQLite database and apply the schema.
+ *
+ * @param dbPath File path or ':memory:' (default).
+ *               Set env var DB_CACHE_PATH to override.
+ */
+export function createDb(dbPath = ':memory:'): InstanceType<typeof Database> {
+  const db = new Database(dbPath);
+  // WAL mode: concurrent reads, faster writes
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = NORMAL');
+  db.exec(SCHEMA_SQL);
+  return db;
+}
+
+/** Truncate all data tables (keeps schema and indexes intact). */
+function clearTables(db: InstanceType<typeof Database>): void {
+  db.transaction(() => {
+    db.exec('DELETE FROM invoices');
+    db.exec('DELETE FROM payments');
+    db.exec('DELETE FROM paymentables');
+    db.exec('DELETE FROM expenses');
+    db.exec('DELETE FROM clients');
+    db.exec('DELETE FROM client_groups');
+    db.exec('DELETE FROM vendors');
+    db.exec('DELETE FROM expense_categories');
+  })();
+}
+
+// ---------------------------------------------------------------------------
+// Populate helpers
+// ---------------------------------------------------------------------------
+
+/** Resolve the client display name from a record that may carry it in
+ *  different fields depending on whether it was fetched with `include`. */
+function resolveClientName(
+  record: { client_name?: string; client?: { name: string } }
+): string | null {
+  return record.client_name ?? record.client?.name ?? null;
+}
+
+/** Resolve the canonical date from records that expose it under two
+ *  different field names (Invoice Ninja uses both in different contexts). */
+function resolveDate(
+  record: { date?: string; invoice_date?: string; expense_date?: string; payment_date?: string },
+  fallback: 'invoice_date' | 'expense_date' | 'payment_date' | undefined = undefined
+): string | null {
+  return record.date ?? (fallback ? (record as Record<string, string | undefined>)[fallback] : undefined) ?? null;
+}
+
+/**
+ * Fetch all relevant data from Invoice Ninja (up to `periodEnd`) and store it
+ * in the local SQLite database. Progress messages are emitted via `onProgress`.
+ *
+ * Data fetched (7 steps):
+ *  1. Invoices   — all with date ≤ periodEnd
+ *  2. Payments   — all with date ≤ periodEnd (paymentables stored separately)
+ *  3. Expenses   — all with date ≤ periodEnd
+ *  4. Clients    — all
+ *  5. Client groups — all
+ *  6. Vendors    — all
+ *  7. Expense categories — all
+ */
+export async function populateDb(
+  db: InstanceType<typeof Database>,
+  client: InvoiceNinjaClient,
+  periodEnd: Date,
+  onProgress: (msg: string) => void
+): Promise<PopulateStats> {
+  const t0 = Date.now();
+  const endISO = format(periodEnd, 'yyyy-MM-dd');
+
+  clearTables(db);
+
+  // Prepared statements (reused across rows for performance)
+  const stmtInvoice = db.prepare(`
+    INSERT OR REPLACE INTO invoices(id, client_id, client_name, amount, balance, date, is_deleted)
+    VALUES (@id, @client_id, @client_name, @amount, @balance, @date, @is_deleted)
+  `);
+  const stmtPayment = db.prepare(`
+    INSERT OR REPLACE INTO payments(id, client_id, client_name, amount, date, is_deleted)
+    VALUES (@id, @client_id, @client_name, @amount, @date, @is_deleted)
+  `);
+  const stmtPaymentable = db.prepare(`
+    INSERT OR REPLACE INTO paymentables(payment_id, invoice_id, amount)
+    VALUES (@payment_id, @invoice_id, @amount)
+  `);
+  const stmtExpense = db.prepare(`
+    INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, is_deleted)
+    VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @is_deleted)
+  `);
+  const stmtClient = db.prepare(`
+    INSERT OR REPLACE INTO clients(id, name, group_settings_id, is_deleted)
+    VALUES (@id, @name, @group_settings_id, @is_deleted)
+  `);
+  const stmtClientGroup = db.prepare(`
+    INSERT OR REPLACE INTO client_groups(id, name) VALUES (@id, @name)
+  `);
+  const stmtVendor = db.prepare(`
+    INSERT OR REPLACE INTO vendors(id, name) VALUES (@id, @name)
+  `);
+  const stmtCategory = db.prepare(`
+    INSERT OR REPLACE INTO expense_categories(id, name) VALUES (@id, @name)
+  `);
+
+  // Helper: format pagination progress line
+  function pageMsg(page: number, totalPages: number | null, fetched: number): string {
+    const ofStr = totalPages ? `/${totalPages}` : '';
+    return `      → Página ${page}${ofStr} (${fetched} registros acumulados)`;
+  }
+
+  // 1/7 — Invoices
+  onProgress(`[1/7] Descargando facturas hasta ${endISO}...`);
+  const invoices = await client.getInvoices(
+    { end_date: endISO },
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const inv of invoices) {
+      stmtInvoice.run({
+        id:          inv.id ?? '',
+        client_id:   inv.client_id ?? null,
+        client_name: resolveClientName(inv),
+        amount:      Number(inv.amount) || 0,
+        balance:     Number(inv.balance) || 0,
+        date:        resolveDate(inv, 'invoice_date'),
+        is_deleted:  inv.is_deleted ? 1 : 0,
+      });
+    }
+  })();
+  onProgress(`      ✓ ${invoices.length} facturas almacenadas`);
+
+  // 2/7 — Payments (paymentables stored in a separate table)
+  onProgress(`[2/7] Descargando pagos hasta ${endISO}...`);
+  const payments = await client.getPayments(
+    { end_date: endISO },
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const p of payments) {
+      const pid = p.id ?? '';
+      stmtPayment.run({
+        id:          pid,
+        client_id:   p.client_id ?? null,
+        client_name: resolveClientName(p),
+        amount:      Number(p.amount) || 0,
+        date:        resolveDate(p, 'payment_date'),
+        is_deleted:  p.is_deleted ? 1 : 0,
+      });
+      // Invoice Ninja v5 returns paymentables by default; fall back to invoices for legacy data
+      const linked = p.paymentables ?? p.invoices ?? [];
+      for (const pa of linked) {
+        if (!pa.invoice_id) continue;
+        stmtPaymentable.run({
+          payment_id: pid,
+          invoice_id: pa.invoice_id,
+          amount:     Number(pa.amount) || 0,
+        });
+      }
+    }
+  })();
+  onProgress(`      ✓ ${payments.length} pagos almacenados`);
+
+  // 3/7 — Expenses
+  onProgress(`[3/7] Descargando gastos hasta ${endISO}...`);
+  const expenses = await client.getExpenses(
+    { end_date: endISO },
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const e of expenses) {
+      stmtExpense.run({
+        id:           e.id ?? '',
+        vendor_id:    e.vendor_id ?? null,
+        category_id:  e.category_id ?? null,
+        amount:       Number(e.amount) || 0,
+        date:         resolveDate(e, 'expense_date'),
+        payment_date: e.payment_date ?? null,
+        is_deleted:   e.is_deleted ? 1 : 0,
+      });
+    }
+  })();
+  onProgress(`      ✓ ${expenses.length} gastos almacenados`);
+
+  // 4/7 — Clients
+  onProgress(`[4/7] Descargando clientes...`);
+  const clients = await client.getClients(
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const c of clients) {
+      stmtClient.run({
+        id:                c.id,
+        name:              c.name ?? null,
+        group_settings_id: c.group_settings_id ?? null,
+        is_deleted:        c.is_deleted ? 1 : 0,
+      });
+    }
+  })();
+  onProgress(`      ✓ ${clients.length} clientes almacenados`);
+
+  // 5/7 — Client groups
+  onProgress(`[5/7] Descargando grupos de clientes...`);
+  const clientGroups = await client.getClientGroups(
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const g of clientGroups) {
+      stmtClientGroup.run({ id: g.id, name: g.name ?? null });
+    }
+  })();
+  onProgress(`      ✓ ${clientGroups.length} grupos almacenados`);
+
+  // 6/7 — Vendors
+  onProgress(`[6/7] Descargando proveedores...`);
+  const vendors = await client.getVendors(
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const v of vendors) {
+      stmtVendor.run({ id: v.id, name: v.name ?? null });
+    }
+  })();
+  onProgress(`      ✓ ${vendors.length} proveedores almacenados`);
+
+  // 7/7 — Expense categories
+  onProgress(`[7/7] Descargando categorías de gastos...`);
+  const categories = await client.getExpenseCategories(
+    (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
+  );
+  db.transaction(() => {
+    for (const cat of categories) {
+      stmtCategory.run({ id: cat.id, name: cat.name ?? null });
+    }
+  })();
+  onProgress(`      ✓ ${categories.length} categorías almacenadas`);
+
+  return {
+    invoices:          invoices.length,
+    payments:          payments.length,
+    expenses:          expenses.length,
+    clients:           clients.length,
+    clientGroups:      clientGroups.length,
+    vendors:           vendors.length,
+    expenseCategories: categories.length,
+    elapsedMs:         Date.now() - t0,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Row → domain object converters
+// ---------------------------------------------------------------------------
+
+function rowToInvoice(row: InvoiceRow): Invoice {
+  return {
+    id:          row.id,
+    client_id:   row.client_id  ?? undefined,
+    client_name: row.client_name ?? undefined,
+    amount:      row.amount,
+    balance:     row.balance,
+    date:        row.date ?? undefined,
+    is_deleted:  row.is_deleted === 1,
+  };
+}
+
+function rowToExpense(row: ExpenseRow): Expense {
+  return {
+    id:           row.id,
+    vendor_id:    row.vendor_id   ?? undefined,
+    category_id:  row.category_id ?? undefined,
+    amount:       row.amount,
+    date:         row.date         ?? undefined,
+    payment_date: row.payment_date ?? undefined,
+    is_deleted:   row.is_deleted === 1,
+  };
+}
+
+function rowToClient(row: ClientRow): Client {
+  return {
+    id:                row.id,
+    name:              row.name              ?? '',
+    group_settings_id: row.group_settings_id ?? undefined,
+    is_deleted:        row.is_deleted === 1,
+  };
+}
+
+function rowToClientGroup(row: ClientGroupRow): ClientGroup {
+  return { id: row.id, name: row.name ?? '' };
+}
+
+// ---------------------------------------------------------------------------
+// Query helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Query the database and return all data slices required by `buildHoaReportData`.
+ *
+ * All queries use the indexes created in `SCHEMA_SQL` for maximum performance.
+ */
+export function queryForReport(
+  db: InstanceType<typeof Database>,
+  periodStart: Date,
+  periodEnd: Date
+): DbQueryResult {
+  const startISO = format(periodStart, 'yyyy-MM-dd');
+  const endISO   = format(periodEnd,   'yyyy-MM-dd');
+
+  // All invoices up to period end (used for AR and invoice-date lookup in aging)
+  const allInvoices = (db.prepare(`
+    SELECT * FROM invoices
+    WHERE date <= ? AND is_deleted = 0
+  `).all(endISO) as InvoiceRow[]).map(rowToInvoice);
+
+  // Invoices issued within the period (cuotas emitidas)
+  const periodInvoices = (db.prepare(`
+    SELECT * FROM invoices
+    WHERE date >= ? AND date <= ? AND is_deleted = 0
+  `).all(startISO, endISO) as InvoiceRow[]).map(rowToInvoice);
+
+  // Payments received within the period
+  const paymentRows = db.prepare(`
+    SELECT * FROM payments
+    WHERE date >= ? AND date <= ? AND is_deleted = 0
+  `).all(startISO, endISO) as PaymentRow[];
+
+  // All paymentables for those payments in one JOIN (avoids N+1 and the 999-variable SQLite limit)
+  const paymentableRows = db.prepare(`
+    SELECT pa.*
+    FROM paymentables pa
+    INNER JOIN payments p ON p.id = pa.payment_id
+    WHERE p.date >= ? AND p.date <= ? AND p.is_deleted = 0
+  `).all(startISO, endISO) as PaymentableRow[];
+
+  // Group paymentables by payment_id for O(1) lookup
+  const paymentablesMap = new Map<string, Array<{ invoice_id: string; amount: number }>>();
+  for (const pa of paymentableRows) {
+    let list = paymentablesMap.get(pa.payment_id);
+    if (!list) { list = []; paymentablesMap.set(pa.payment_id, list); }
+    list.push({ invoice_id: pa.invoice_id, amount: pa.amount });
+  }
+
+  // Assemble Payment objects with paymentables attached
+  const periodPayments: Payment[] = paymentRows.map(row => ({
+    id:           row.id,
+    client_id:    row.client_id    ?? undefined,
+    client_name:  row.client_name  ?? undefined,
+    amount:       row.amount,
+    date:         row.date         ?? undefined,
+    is_deleted:   row.is_deleted   === 1,
+    paymentables: paymentablesMap.get(row.id) ?? [],
+  }));
+
+  // All expenses (not deleted) — used for AP outstanding balance
+  const allExpenses = (db.prepare(`
+    SELECT * FROM expenses WHERE is_deleted = 0
+  `).all() as ExpenseRow[]).map(rowToExpense);
+
+  // Expenses within the period (gastos del período)
+  const periodExpenses = (db.prepare(`
+    SELECT * FROM expenses
+    WHERE date >= ? AND date <= ? AND is_deleted = 0
+  `).all(startISO, endISO) as ExpenseRow[]).map(rowToExpense);
+
+  // Clients (not deleted)
+  const allClients = (db.prepare(`
+    SELECT * FROM clients WHERE is_deleted = 0
+  `).all() as ClientRow[]).map(rowToClient);
+
+  // Client groups (all)
+  const clientGroups = (db.prepare(`
+    SELECT * FROM client_groups
+  `).all() as ClientGroupRow[]).map(rowToClientGroup);
+
+  return {
+    allInvoices,
+    periodInvoices,
+    periodPayments,
+    periodExpenses,
+    allExpenses,
+    allClients,
+    clientGroups,
+  };
+}
