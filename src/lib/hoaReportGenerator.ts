@@ -216,26 +216,23 @@ class HoaReportGenerator {
       ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2980b9']);
     const paletteJson = JSON.stringify(resolvedPalette);
 
-    /** Render a single KPI card as a colored HTML div. */
-    const kpiCard = (lines: string[], value: string, colorIndex: number): string => {
-      const bg = resolvedPalette[colorIndex % resolvedPalette.length];
-      const linesHtml = lines
-        .map(l => `<div class="kpi-label">${this.esc(l)}</div>`)
-        .join('');
+    /** Render a single KPI big-number item for the executive summary strip. */
+    const kpiItem = (lines: string[], value: string): string => {
+      const labelHtml = lines.map(l => this.esc(l)).join('<br>');
       return `
-    <div class="kpi-stat" style="background:${bg};">
-      ${linesHtml}
+    <div class="kpi-item">
+      <div class="kpi-label">${labelHtml}</div>
       <div class="kpi-value">${this.esc(value)}</div>
     </div>`;
     };
 
-    // KPI card definitions: [label lines, formatted value, palette index]
-    const kpiCards: Array<[string[], string, number]> = [
-      [['Cuotas Emitidas', 'en el Período'],       `$${fmt(totalInvoicedInPeriod)}`,  0],
-      [['Pagos Recibidos', 'en el Período'],        `$${fmt(totalPaymentsInPeriod)}`,  1],
-      [['Cuentas x Cobrar', 'Inicio del Período'],  `$${fmt(arAtPeriodStart)}`,        2],
-      [['Cuentas x Cobrar', 'Final del Período'],   `$${fmt(arAtPeriodEnd)}`,          3],
-      [['Gastos', 'del Período'],                   `$${fmt(totalExpensesInPeriod)}`,  4],
+    // KPI definitions: [label lines, formatted value]
+    const kpiItems: Array<[string[], string]> = [
+      [['Cuotas Emitidas', 'en el Período'],       `$${fmt(totalInvoicedInPeriod)}`],
+      [['Pagos Recibidos', 'en el Período'],        `$${fmt(totalPaymentsInPeriod)}`],
+      [['Cuentas x Cobrar', 'Inicio del Período'],  `$${fmt(arAtPeriodStart)}`],
+      [['Cuentas x Cobrar', 'Final del Período'],   `$${fmt(arAtPeriodEnd)}`],
+      [['Gastos', 'del Período'],                   `$${fmt(totalExpensesInPeriod)}`],
     ];
 
     return `<!DOCTYPE html>
@@ -257,37 +254,34 @@ class HoaReportGenerator {
     .report-header h1 { font-size: 26px; color: #2c3e50; margin-bottom: 8px; }
     .report-header .meta { font-size: 13px; color: #7f8c8d; margin-top: 4px; }
 
-    /* ── KPI grid ── */
-    .kpi-grid {
+    /* ── KPI big-number strip ── */
+    .kpi-section {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
-      margin-bottom: 16px;
+      grid-template-columns: repeat(5, 1fr);
+      border-top: 3px solid #1e2d3d;
+      border-bottom: 1px solid #d5d8dc;
+      margin-bottom: 40px;
     }
-    .kpi-single { display: flex; justify-content: center; margin-bottom: 40px; }
-    .kpi-single .kpi-stat { width: calc(50% - 8px); }
-
-    /* ── KPI stat card ── */
-    .kpi-stat {
-      border-radius: 10px;
-      padding: 22px 20px 18px;
+    .kpi-item {
+      padding: 18px 12px;
       text-align: center;
-      color: #fff;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+      border-right: 1px solid #d5d8dc;
     }
+    .kpi-item:last-child { border-right: none; }
     .kpi-label {
-      font-size: 11px;
-      font-weight: bold;
-      letter-spacing: .5px;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.2px;
       text-transform: uppercase;
-      opacity: .88;
-      line-height: 1.4;
+      color: #7f8c8d;
+      line-height: 1.5;
+      margin-bottom: 8px;
     }
     .kpi-value {
-      font-size: 28px;
-      font-weight: bold;
-      margin-top: 10px;
-      letter-spacing: -.5px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #1e2d3d;
+      letter-spacing: -0.5px;
     }
 
     /* ── Section titles ── */
@@ -317,17 +311,13 @@ class HoaReportGenerator {
     <div class="meta">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
   </div>
 
-  <!-- ── KPI big numbers (2×2 grid) ── -->
-  <div class="kpi-grid">
-    ${kpiCard(...kpiCards[0])}
-    ${kpiCard(...kpiCards[1])}
-    ${kpiCard(...kpiCards[2])}
-    ${kpiCard(...kpiCards[3])}
-  </div>
-
-  <!-- ── KPI: Gastos (centered) ── -->
-  <div class="kpi-single">
-    ${kpiCard(...kpiCards[4])}
+  <!-- ── KPI big numbers ── -->
+  <div class="kpi-section">
+    ${kpiItem(...kpiItems[0])}
+    ${kpiItem(...kpiItems[1])}
+    ${kpiItem(...kpiItems[2])}
+    ${kpiItem(...kpiItems[3])}
+    ${kpiItem(...kpiItems[4])}
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group ── -->
