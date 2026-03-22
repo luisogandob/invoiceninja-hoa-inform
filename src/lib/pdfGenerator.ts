@@ -4,6 +4,8 @@ import { format } from 'date-fns';
 import type { Expense, Invoice, Payment } from './invoiceNinjaClient.js';
 
 /**
+ * @deprecated Use {@link HoaReportGenerator} and {@link buildHoaReportData} from the new
+ * `hoaReportGenerator.ts` / `hoaReportData.ts` modules instead.
  * Report data structure for financial reports (incomes and expenses)
  */
 export interface ReportData {
@@ -32,6 +34,8 @@ type JSReportInstance = any;
 const MAX_UNPAID_INVOICES_IN_PDF = 20;
 
 /**
+ * @deprecated Use {@link HoaReportGenerator} from `hoaReportGenerator.ts` instead.
+ *
  * PDF Generator using JSReport
  * Generates financial reports (income and expenses) in PDF format
  */
