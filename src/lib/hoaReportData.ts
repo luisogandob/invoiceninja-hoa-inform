@@ -1,4 +1,4 @@
-import { parseISO, isWithinInterval, isBefore, isEqual } from 'date-fns';
+import { parseISO, isBefore, isEqual, differenceInDays } from 'date-fns';
 import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
@@ -24,21 +24,50 @@ export interface HoaReportData {
   arAtPeriodStart: number;
   /** Accounts receivable at the END of the period */
   arAtPeriodEnd: number;
+  /**
+   * Accounts payable at the START of the period.
+   * Currently 0 — AP tracking requires the InvoiceNinja Bills module
+   * which is not yet integrated.
+   */
+  apAtPeriodStart: number;
+  /**
+   * Accounts payable at the END of the period.
+   * Currently 0 — AP tracking requires the InvoiceNinja Bills module
+   * which is not yet integrated.
+   */
+  apAtPeriodEnd: number;
 
-  /** Payments in the period grouped by client group */
+  /** Payments in the period grouped by client group, with aging buckets */
   paymentsByGroup: PaymentsByGroup[];
-  /** Accounts receivable at end of period, grouped by client group */
+  /** Accounts receivable at end of period, grouped by client group, with aging buckets */
   arByGroup: ArByGroup[];
 }
 
 export interface PaymentsByGroup {
   groupName: string;
+  /** Sum of all aging buckets */
   total: number;
+  /** Payments applied to invoices aged ≤30 days at time of payment (green) */
+  aged0_30: number;
+  /** Payments applied to invoices aged 31-90 days at time of payment (yellow) */
+  aged31_90: number;
+  /** Payments applied to invoices aged >90 days at time of payment (orange) */
+  aged90plus: number;
 }
 
 export interface ArByGroup {
   groupName: string;
+  /** Sum of all aging buckets */
   balance: number;
+  /** Outstanding balance on invoices aged <90 days as of period end (orange) */
+  aged0_90: number;
+  /** Outstanding balance on invoices aged ≥90 days as of period end (red) */
+  aged90plus: number;
+  /**
+   * Outstanding balance from late-fee/mora line items (purple).
+   * Currently 0 — mora line-item identification is not yet implemented.
+   */
+  mora: number;
 }
 
 /** Label used when a client has no group assigned */
@@ -141,28 +170,106 @@ export function buildHoaReportData(
   // --- AR at start of period ---
   // Accounting identity: AR_end = AR_start + Invoices_in_period - Payments_in_period
   // => AR_start = AR_end - Invoices_in_period + Payments_in_period
-  const arAtPeriodStart = arAtPeriodEnd - totalInvoicedInPeriod + totalPaymentsInPeriod;
+  // Clamped to 0 to guard against edge cases where payments or data gaps would
+  // produce a negative result (e.g. period start is before the first invoice).
+  const arAtPeriodStart = Math.max(0, arAtPeriodEnd - totalInvoicedInPeriod + totalPaymentsInPeriod);
 
-  // --- Payments by client group ---
-  const paymentGroupMap: Record<string, number> = {};
+  // --- Invoice date lookup (for payment aging) ---
+  const invoiceDateById = new Map<string, Date>();
+  allInvoices.forEach(inv => {
+    if (!inv.id) return;
+    const dateStr = inv.date || inv.invoice_date;
+    if (!dateStr) return;
+    try { invoiceDateById.set(inv.id, parseISO(dateStr)); } catch { /* skip malformed */ }
+  });
+
+  // --- Payments by client group with aging buckets ---
+  interface GroupPayments { aged0_30: number; aged31_90: number; aged90plus: number; }
+  const paymentGroupMap: Record<string, GroupPayments> = {};
+
   periodPayments.forEach(p => {
     const group = resolveGroup(p.client_id, p.client_name || p.client?.name);
-    paymentGroupMap[group] = (paymentGroupMap[group] || 0) + parseFloat(String(p.amount || 0));
+    if (!paymentGroupMap[group]) {
+      paymentGroupMap[group] = { aged0_30: 0, aged31_90: 0, aged90plus: 0 };
+    }
+
+    const paymentDate = (() => {
+      const s = p.date || p.payment_date;
+      if (!s) return null;
+      try { return parseISO(s); } catch { return null; }
+    })();
+
+    const linkedInvoices = p.invoices;
+    if (paymentDate && linkedInvoices && linkedInvoices.length > 0) {
+      // Distribute payment by how old each linked invoice was at the time of payment
+      linkedInvoices.forEach(li => {
+        const invDate = invoiceDateById.get(li.invoice_id);
+        const amount = parseFloat(String(li.amount || 0));
+        if (invDate) {
+          const age = Math.max(0, differenceInDays(paymentDate, invDate));
+          if (age <= 30) {
+            paymentGroupMap[group].aged0_30 += amount;
+          } else if (age <= 90) {
+            paymentGroupMap[group].aged31_90 += amount;
+          } else {
+            paymentGroupMap[group].aged90plus += amount;
+          }
+        } else {
+          paymentGroupMap[group].aged0_30 += amount; // unknown invoice age → treat as current
+        }
+      });
+    } else {
+      // No linked-invoice detail → treat full payment as current
+      const amount = parseFloat(String(p.amount || 0));
+      paymentGroupMap[group].aged0_30 += amount;
+    }
   });
+
   const paymentsByGroup: PaymentsByGroup[] = Object.entries(paymentGroupMap)
-    .map(([groupName, total]) => ({ groupName, total }))
+    .map(([groupName, b]) => ({
+      groupName,
+      total: b.aged0_30 + b.aged31_90 + b.aged90plus,
+      aged0_30:   b.aged0_30,
+      aged31_90:  b.aged31_90,
+      aged90plus: b.aged90plus
+    }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
-  // --- AR by client group at end of period ---
-  const arGroupMap: Record<string, number> = {};
+  // --- AR by client group with aging buckets ---
+  interface GroupAR { aged0_90: number; aged90plus: number; mora: number; }
+  const arGroupMap: Record<string, GroupAR> = {};
+
   invoicesIssuedByPeriodEnd.forEach(inv => {
     const balance = parseFloat(String(inv.balance || 0));
     if (balance <= 0) return;
     const group = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
-    arGroupMap[group] = (arGroupMap[group] || 0) + balance;
+    if (!arGroupMap[group]) {
+      arGroupMap[group] = { aged0_90: 0, aged90plus: 0, mora: 0 };
+    }
+
+    const dateStr = inv.date || inv.invoice_date;
+    try {
+      const invDate = dateStr ? parseISO(dateStr) : null;
+      const age = invDate ? Math.max(0, differenceInDays(periodEnd, invDate)) : 0;
+      if (age < 90) {
+        arGroupMap[group].aged0_90 += balance;
+      } else {
+        arGroupMap[group].aged90plus += balance;
+      }
+      // mora = 0: line-item-level late-fee identification is not yet implemented
+    } catch {
+      arGroupMap[group].aged0_90 += balance; // fallback
+    }
   });
+
   const arByGroup: ArByGroup[] = Object.entries(arGroupMap)
-    .map(([groupName, balance]) => ({ groupName, balance }))
+    .map(([groupName, b]) => ({
+      groupName,
+      balance:    b.aged0_90 + b.aged90plus + b.mora,
+      aged0_90:   b.aged0_90,
+      aged90plus: b.aged90plus,
+      mora:       b.mora
+    }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   return {
@@ -173,8 +280,10 @@ export function buildHoaReportData(
     totalInvoicedInPeriod,
     totalPaymentsInPeriod,
     totalExpensesInPeriod,
-    arAtPeriodStart: Math.max(0, arAtPeriodStart),
+    arAtPeriodStart,
     arAtPeriodEnd,
+    apAtPeriodStart: 0,
+    apAtPeriodEnd:   0,
     paymentsByGroup,
     arByGroup
   };
