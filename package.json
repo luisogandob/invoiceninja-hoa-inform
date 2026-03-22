@@ -7,9 +7,14 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "start": "npm run build && node dist/index.js",
     "dev": "tsx --watch src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test-connections": "npm run build && node dist/index.js test",
+    "test-report": "npm run build && node dist/index.js test-inform",
+    "report": "npm run build && node dist/index.js report",
+    "report:last-month": "npm run build && node dist/index.js report last-month",
+    "report:current-year": "npm run build && node dist/index.js report current-year",
+    "report:last-year": "npm run build && node dist/index.js report last-year"
   },
   "keywords": [
     "invoiceninja",

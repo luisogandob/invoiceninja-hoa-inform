@@ -45,7 +45,7 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: true
 
       - name: Generate and send report
-        run: npm start report ${{ inputs.period || 'last-month' }}
+        run: npm run build && node dist/index.js report ${{ inputs.period || 'last-month' }}
         env:
           INVOICE_NINJA_URL: ${{ secrets.INVOICE_NINJA_URL }}
           INVOICE_NINJA_TOKEN: ${{ secrets.INVOICE_NINJA_TOKEN }}

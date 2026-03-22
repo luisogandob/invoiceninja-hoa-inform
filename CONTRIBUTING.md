@@ -28,7 +28,7 @@ cp .env.example .env
 # Edit .env with your configuration
 
 # Test the setup
-npm start test
+npm run test-connections
 ```
 
 ## Code Style
@@ -45,7 +45,7 @@ npm start test
 Before submitting a PR:
 
 1. Ensure all existing functionality works
-2. Test with the `test` command: `npm start test`
+2. Test with the `test-connections` command: `npm run test-connections`
 3. Test report generation with different periods
 4. Verify PDF generation works correctly with both income and expenses
 5. Verify email sending works correctly

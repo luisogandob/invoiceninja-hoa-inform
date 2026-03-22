@@ -264,7 +264,7 @@ REPORT_PERIOD=monthly
 
 ```bash
 # Monthly on 1st at 9 AM
-0 9 1 * * cd /path/to/project && npm start report last-month
+0 9 1 * * cd /path/to/project && npm run report:last-month
 ```
 
 ### 2. Task Scheduler (Windows)
@@ -377,7 +377,7 @@ Automated workflow in `.github/workflows/monthly-report.yml`:
 
 - Syntax validation with Node.js
 - Module import testing
-- Connection testing (`npm start test`)
+- Connection testing (`npm run test-connections`)
 
 ### Future Testing
 
@@ -395,8 +395,8 @@ Automated workflow in `.github/workflows/monthly-report.yml`:
 npm install
 cp .env.example .env
 # Edit .env
-npm start test
-npm start report current-month
+npm run test-connections
+npm run report
 ```
 
 ### Production Deployment
@@ -437,7 +437,7 @@ npm start report current-month
 
 1. Check documentation first
 2. Review example code
-3. Test connections with `npm start test`
+3. Test connections with `npm run test-connections`
 4. Open GitHub issue with details
 
 ## Future Roadmap

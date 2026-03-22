@@ -112,7 +112,7 @@ Edit `.env` and set your configuration:
 Verify that the system can connect to Invoice Ninja and your email server:
 
 ```bash
-npm start test
+npm run test-connections
 ```
 
 ### Test Report Generation
@@ -120,7 +120,7 @@ npm start test
 Generate and preview a report without sending it by email (useful for testing):
 
 ```bash
-npm start test-inform
+npm run test-report
 ```
 
 This command will:
@@ -129,12 +129,12 @@ This command will:
 - Generate a PDF file (`financial-report-test.pdf`)
 - **Not send any email**
 
-You can also specify a period:
+You can also specify a period using the `REPORT_PERIOD` environment variable:
 
 ```bash
-npm start test-inform last-month
-npm start test-inform current-year
-npm start test-inform last-year
+REPORT_PERIOD=last-month npm run test-report
+REPORT_PERIOD=current-year npm run test-report
+REPORT_PERIOD=last-year npm run test-report
 ```
 
 ### Generate Reports
@@ -142,15 +142,15 @@ npm start test-inform last-year
 Generate and send a report for the current month:
 
 ```bash
-npm start
+npm run report
 ```
 
 Generate a report for a specific period:
 
 ```bash
-npm start report last-month
-npm start report current-year
-npm start report last-year
+npm run report:last-month
+npm run report:current-year
+npm run report:last-year
 ```
 
 Available periods:
@@ -304,7 +304,7 @@ You can automate report generation using:
 
 ```bash
 # Run monthly report on the 1st of each month at 9 AM
-0 9 1 * * cd /path/to/project && npm start report last-month
+0 9 1 * * cd /path/to/project && npm run report:last-month
 ```
 
 ### Task Scheduler (Windows)
@@ -325,7 +325,7 @@ Use GitHub Actions to run reports on a schedule.
 1. Verify Invoice Ninja URL is correct and accessible
 2. Check API token is valid and has proper permissions
 3. Test email SMTP settings with a email client
-4. Run `npm start test` to diagnose connection issues
+4. Run `npm run test-connections` to diagnose connection issues
 
 ### Missing Dependencies
 

@@ -68,7 +68,7 @@ REPORT_PERIOD=monthly
 ## Step 3: Test Configuration
 
 ```bash
-npm start test
+npm run test-connections
 ```
 
 You should see:
@@ -80,7 +80,7 @@ You should see:
 ## Step 4: Generate Your First Report
 
 ```bash
-npm start report last-month
+npm run report:last-month
 ```
 
 This will:
@@ -93,19 +93,19 @@ This will:
 
 ```bash
 # Test connections
-npm start test
+npm run test-connections
 
 # Current month report
-npm start report current-month
+npm run report
 
 # Last month report
-npm start report last-month
+npm run report:last-month
 
 # Year-to-date report
-npm start report current-year
+npm run report:current-year
 
 # Previous year report
-npm start report last-year
+npm run report:last-year
 ```
 
 ## Next Steps
@@ -119,7 +119,7 @@ npm start report last-year
 crontab -e
 
 # Add this line (runs on 1st of month at 9 AM)
-0 9 1 * * cd /path/to/invoiceninja-hoa-inform && npm start report last-month
+0 9 1 * * cd /path/to/invoiceninja-hoa-inform && npm run report:last-month
 ```
 
 **Option 2: Task Scheduler (Windows)**
@@ -129,7 +129,7 @@ crontab -e
 3. Set trigger: Monthly, day 1, 9:00 AM
 4. Action: Start a program
 5. Program: `node`
-6. Arguments: `src/index.js report last-month`
+6. Arguments: `dist/index.js report last-month`
 7. Start in: `C:\path\to\invoiceninja-hoa-inform`
 
 **Option 3: GitHub Actions**
