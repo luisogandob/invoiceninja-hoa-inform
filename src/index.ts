@@ -104,7 +104,8 @@ class HOAInformAutomation {
       console.log('Fetching payments for period...');
       const periodPayments = await this.invoiceNinja.getPayments({
         start_date: dateRange.startISO,
-        end_date: dateRange.endISO
+        end_date: dateRange.endISO,
+        include: 'invoices'
       });
       const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
 
@@ -232,7 +233,8 @@ class HOAInformAutomation {
 
       const periodPayments = await this.invoiceNinja.getPayments({
         start_date: dateRange.startISO,
-        end_date: dateRange.endISO
+        end_date: dateRange.endISO,
+        include: 'invoices'
       });
       const filteredPeriodPayments = filterPaymentsByDate(periodPayments, dateRange.start, dateRange.end);
 
