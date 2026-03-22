@@ -33,9 +33,6 @@
   "overrides": {
     "uuid": "^9.0.0",
     "axios": "^1.6.0",
-    "lodash.get": "npm:lodash@^4.17.21",
-    "lodash.omit": "npm:lodash@^4.17.21",
-    "lodash.set": "npm:lodash@^4.17.21",
     "ajv": "^6.12.6",
     "nanoid": "^3.3.8",
     "ms": "^2.1.3",
