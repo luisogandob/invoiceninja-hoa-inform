@@ -8,6 +8,12 @@ import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNi
 // ---------------------------------------------------------------------------
 
 const SCHEMA_SQL = `
+  -- Metadata: tracks last successful sync so incremental mode knows its cutoff
+  CREATE TABLE IF NOT EXISTS sync_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS invoices (
     id          TEXT    PRIMARY KEY,
     client_id   TEXT,
@@ -71,6 +77,20 @@ const SCHEMA_SQL = `
   );
   -- Resolve client → group
   CREATE INDEX IF NOT EXISTS idx_cli_group ON clients(group_settings_id);
+
+  CREATE TABLE IF NOT EXISTS client_contacts (
+    id         TEXT    PRIMARY KEY,
+    client_id  TEXT    NOT NULL,
+    first_name TEXT,
+    last_name  TEXT,
+    email      TEXT,
+    phone      TEXT,
+    is_primary INTEGER NOT NULL DEFAULT 0
+  );
+  -- Look up contacts for a client (e.g. for email/reporting)
+  CREATE INDEX IF NOT EXISTS idx_contact_client ON client_contacts(client_id);
+  -- Look up by email address
+  CREATE INDEX IF NOT EXISTS idx_contact_email  ON client_contacts(email);
 
   CREATE TABLE IF NOT EXISTS client_groups (
     id   TEXT PRIMARY KEY,
@@ -143,15 +163,28 @@ interface ClientGroupRow {
 // Public types
 // ---------------------------------------------------------------------------
 
-/** Statistics returned after populating the local database. */
-export interface PopulateStats {
+/** The two synchronisation modes supported by `syncDb`. */
+export type SyncMode = 'full' | 'incremental';
+
+/** Metadata stored in the database about the last completed sync. */
+export interface SyncMeta {
+  /** ISO 8601 timestamp of when the last sync completed. */
+  lastSyncAt: string;
+  /** Which mode was used for the last sync. */
+  lastSyncMode: SyncMode;
+}
+
+/** Statistics returned after a successful sync. */
+export interface SyncStats {
   invoices:          number;
   payments:          number;
   expenses:          number;
   clients:           number;
+  contacts:          number;
   clientGroups:      number;
   vendors:           number;
   expenseCategories: number;
+  mode:              SyncMode;
   elapsedMs:         number;
 }
 
@@ -180,10 +213,11 @@ export interface DbQueryResult {
 /**
  * Open (or create) the SQLite database and apply the schema.
  *
- * @param dbPath File path or ':memory:' (default).
- *               Set env var DB_CACHE_PATH to override.
+ * @param dbPath File path for persistent storage (default `'./hoa-cache.db'`).
+ *               Pass `':memory:'` for a temporary in-process DB (testing).
+ *               Override via the `DB_CACHE_PATH` environment variable.
  */
-export function createDb(dbPath = ':memory:'): InstanceType<typeof Database> {
+export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Database> {
   const db = new Database(dbPath);
   // WAL mode: concurrent reads, faster writes
   db.pragma('journal_mode = WAL');
@@ -192,14 +226,39 @@ export function createDb(dbPath = ':memory:'): InstanceType<typeof Database> {
   return db;
 }
 
-/** Truncate all data tables (keeps schema and indexes intact). */
-function clearTables(db: InstanceType<typeof Database>): void {
+/** Read the last sync metadata from the database. Returns `null` when no sync has ever run. */
+export function getSyncMeta(db: InstanceType<typeof Database>): SyncMeta | null {
+  const rows = db.prepare(
+    "SELECT key, value FROM sync_meta WHERE key IN ('last_sync_at', 'last_sync_mode')"
+  ).all() as Array<{ key: string; value: string }>;
+
+  const map: Record<string, string> = {};
+  for (const row of rows) map[row.key] = row.value;
+
+  const lastSyncAt   = map['last_sync_at'];
+  const lastSyncMode = map['last_sync_mode'] as SyncMode | undefined;
+  if (!lastSyncAt || !lastSyncMode) return null;
+  return { lastSyncAt, lastSyncMode };
+}
+
+/** Persist sync metadata after a successful sync. */
+function saveSyncMeta(db: InstanceType<typeof Database>, meta: SyncMeta): void {
+  const stmt = db.prepare("INSERT OR REPLACE INTO sync_meta(key, value) VALUES (?, ?)");
+  db.transaction(() => {
+    stmt.run('last_sync_at',   meta.lastSyncAt);
+    stmt.run('last_sync_mode', meta.lastSyncMode);
+  })();
+}
+
+/** Truncate all data tables (keeps schema, indexes and sync_meta intact). */
+function clearDataTables(db: InstanceType<typeof Database>): void {
   db.transaction(() => {
     db.exec('DELETE FROM invoices');
     db.exec('DELETE FROM payments');
     db.exec('DELETE FROM paymentables');
     db.exec('DELETE FROM expenses');
     db.exec('DELETE FROM clients');
+    db.exec('DELETE FROM client_contacts');
     db.exec('DELETE FROM client_groups');
     db.exec('DELETE FROM vendors');
     db.exec('DELETE FROM expense_categories');
@@ -207,7 +266,7 @@ function clearTables(db: InstanceType<typeof Database>): void {
 }
 
 // ---------------------------------------------------------------------------
-// Populate helpers
+// Sync helpers
 // ---------------------------------------------------------------------------
 
 /** Resolve the client display name from a record that may carry it in
@@ -228,28 +287,62 @@ function resolveDate(
 }
 
 /**
- * Fetch all relevant data from Invoice Ninja (up to `periodEnd`) and store it
- * in the local SQLite database. Progress messages are emitted via `onProgress`.
+ * Synchronise the local SQLite database with Invoice Ninja.
  *
- * Data fetched (7 steps):
- *  1. Invoices   — all with date ≤ periodEnd
- *  2. Payments   — all with date ≤ periodEnd (paymentables stored separately)
- *  3. Expenses   — all with date ≤ periodEnd
- *  4. Clients    — all
- *  5. Client groups — all
- *  6. Vendors    — all
- *  7. Expense categories — all
+ * **Full mode** (`mode = 'full'`): clears all data tables, then fetches the
+ * complete dataset from Invoice Ninja (no date or `updated_at` constraints).
+ *
+ * **Incremental mode** (`mode = 'incremental'`): reads the `last_sync_at`
+ * timestamp stored by the previous sync, then uses Invoice Ninja's
+ * `updated_at` Unix-timestamp filter to request only records changed since
+ * that point. Each entity is upserted (`INSERT OR REPLACE`), so deletions
+ * (soft-deleted records) are also picked up when the API returns them.
+ *
+ * Requires the DB to have been populated at least once in full mode before
+ * incremental mode can be used.
+ *
+ * Data fetched (8 steps):
+ *  1. Invoices
+ *  2. Payments + Paymentables
+ *  3. Expenses
+ *  4. Clients + Contacts
+ *  5. Client groups
+ *  6. Vendors
+ *  7. Expense categories
+ *  (8) Save sync metadata
+ *
+ * @param db        Open SQLite database created with `createDb()`.
+ * @param client    Invoice Ninja API client.
+ * @param mode      `'full'` or `'incremental'`.
+ * @param onProgress Callback for human-readable progress messages.
  */
-export async function populateDb(
+export async function syncDb(
   db: InstanceType<typeof Database>,
   client: InvoiceNinjaClient,
-  periodEnd: Date,
+  mode: SyncMode,
   onProgress: (msg: string) => void
-): Promise<PopulateStats> {
+): Promise<SyncStats> {
   const t0 = Date.now();
-  const endISO = format(periodEnd, 'yyyy-MM-dd');
 
-  clearTables(db);
+  // ---- Determine updated_at cutoff for incremental mode ----
+  let updatedAtFilter: number | undefined;
+  if (mode === 'incremental') {
+    const meta = getSyncMeta(db);
+    if (!meta) {
+      throw new Error(
+        'No hay datos de sincronización previos. ' +
+        'Ejecute "npm start sync full" primero antes de usar el modo incremental.'
+      );
+    }
+    // Convert ISO timestamp → Unix seconds (the Invoice Ninja API expects integer seconds)
+    updatedAtFilter = Math.floor(new Date(meta.lastSyncAt).getTime() / 1000);
+    onProgress(`🔄 Modo incremental — cambios desde ${meta.lastSyncAt}`);
+  } else {
+    onProgress(`🗑️  Modo completo — limpiando datos anteriores...`);
+    clearDataTables(db);
+  }
+
+  const baseFilters = updatedAtFilter !== undefined ? { updated_at: updatedAtFilter } : {};
 
   // Prepared statements (reused across rows for performance)
   const stmtInvoice = db.prepare(`
@@ -264,6 +357,7 @@ export async function populateDb(
     INSERT OR REPLACE INTO paymentables(payment_id, invoice_id, amount)
     VALUES (@payment_id, @invoice_id, @amount)
   `);
+  const deletePaymentables = db.prepare(`DELETE FROM paymentables WHERE payment_id = ?`);
   const stmtExpense = db.prepare(`
     INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, is_deleted)
     VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @is_deleted)
@@ -272,6 +366,11 @@ export async function populateDb(
     INSERT OR REPLACE INTO clients(id, name, group_settings_id, is_deleted)
     VALUES (@id, @name, @group_settings_id, @is_deleted)
   `);
+  const stmtContact = db.prepare(`
+    INSERT OR REPLACE INTO client_contacts(id, client_id, first_name, last_name, email, phone, is_primary)
+    VALUES (@id, @client_id, @first_name, @last_name, @email, @phone, @is_primary)
+  `);
+  const deleteContacts = db.prepare(`DELETE FROM client_contacts WHERE client_id = ?`);
   const stmtClientGroup = db.prepare(`
     INSERT OR REPLACE INTO client_groups(id, name) VALUES (@id, @name)
   `);
@@ -289,9 +388,9 @@ export async function populateDb(
   }
 
   // 1/7 — Invoices
-  onProgress(`[1/7] Descargando facturas hasta ${endISO}...`);
+  onProgress(`[1/7] Descargando facturas...`);
   const invoices = await client.getInvoices(
-    { end_date: endISO },
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -310,9 +409,9 @@ export async function populateDb(
   onProgress(`      ✓ ${invoices.length} facturas almacenadas`);
 
   // 2/7 — Payments (paymentables stored in a separate table)
-  onProgress(`[2/7] Descargando pagos hasta ${endISO}...`);
+  onProgress(`[2/7] Descargando pagos...`);
   const payments = await client.getPayments(
-    { end_date: endISO },
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -326,7 +425,8 @@ export async function populateDb(
         date:        resolveDate(p, 'payment_date'),
         is_deleted:  p.is_deleted ? 1 : 0,
       });
-      // Invoice Ninja v5 returns paymentables by default; fall back to invoices for legacy data
+      // Re-sync paymentables fully for each payment to avoid stale rows
+      deletePaymentables.run(pid);
       const linked = p.paymentables ?? p.invoices ?? [];
       for (const pa of linked) {
         if (!pa.invoice_id) continue;
@@ -341,9 +441,9 @@ export async function populateDb(
   onProgress(`      ✓ ${payments.length} pagos almacenados`);
 
   // 3/7 — Expenses
-  onProgress(`[3/7] Descargando gastos hasta ${endISO}...`);
+  onProgress(`[3/7] Descargando gastos...`);
   const expenses = await client.getExpenses(
-    { end_date: endISO },
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -361,26 +461,44 @@ export async function populateDb(
   })();
   onProgress(`      ✓ ${expenses.length} gastos almacenados`);
 
-  // 4/7 — Clients
-  onProgress(`[4/7] Descargando clientes...`);
-  const clients = await client.getClients(
+  // 4/7 — Clients + Contacts
+  onProgress(`[4/7] Descargando clientes y contactos...`);
+  const clientList = await client.getClients(
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
+  let contactCount = 0;
   db.transaction(() => {
-    for (const c of clients) {
+    for (const c of clientList) {
       stmtClient.run({
         id:                c.id,
         name:              c.name ?? null,
         group_settings_id: c.group_settings_id ?? null,
         is_deleted:        c.is_deleted ? 1 : 0,
       });
+      // Re-sync contacts for this client (handles additions, removals, updates)
+      deleteContacts.run(c.id);
+      for (const ct of (c.contacts ?? [])) {
+        if (!ct.id) continue;
+        stmtContact.run({
+          id:         ct.id,
+          client_id:  c.id,
+          first_name: ct.first_name ?? null,
+          last_name:  ct.last_name  ?? null,
+          email:      ct.email      ?? null,
+          phone:      ct.phone      ?? null,
+          is_primary: ct.is_primary ? 1 : 0,
+        });
+        contactCount++;
+      }
     }
   })();
-  onProgress(`      ✓ ${clients.length} clientes almacenados`);
+  onProgress(`      ✓ ${clientList.length} clientes, ${contactCount} contactos almacenados`);
 
   // 5/7 — Client groups
   onProgress(`[5/7] Descargando grupos de clientes...`);
   const clientGroups = await client.getClientGroups(
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -393,6 +511,7 @@ export async function populateDb(
   // 6/7 — Vendors
   onProgress(`[6/7] Descargando proveedores...`);
   const vendors = await client.getVendors(
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -405,6 +524,7 @@ export async function populateDb(
   // 7/7 — Expense categories
   onProgress(`[7/7] Descargando categorías de gastos...`);
   const categories = await client.getExpenseCategories(
+    { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
   );
   db.transaction(() => {
@@ -414,16 +534,23 @@ export async function populateDb(
   })();
   onProgress(`      ✓ ${categories.length} categorías almacenadas`);
 
-  return {
+  // Persist sync metadata
+  const completedAt = new Date().toISOString();
+  saveSyncMeta(db, { lastSyncAt: completedAt, lastSyncMode: mode });
+
+  const stats: SyncStats = {
     invoices:          invoices.length,
     payments:          payments.length,
     expenses:          expenses.length,
-    clients:           clients.length,
+    clients:           clientList.length,
+    contacts:          contactCount,
     clientGroups:      clientGroups.length,
     vendors:           vendors.length,
     expenseCategories: categories.length,
+    mode,
     elapsedMs:         Date.now() - t0,
   };
+  return stats;
 }
 
 // ---------------------------------------------------------------------------
@@ -475,6 +602,8 @@ function rowToClientGroup(row: ClientGroupRow): ClientGroup {
  * Query the database and return all data slices required by `buildHoaReportData`.
  *
  * All queries use the indexes created in `SCHEMA_SQL` for maximum performance.
+ * This function does NOT call the Invoice Ninja API — it only reads from the
+ * local SQLite cache populated by `syncDb()`.
  */
 export function queryForReport(
   db: InstanceType<typeof Database>,
@@ -560,3 +689,4 @@ export function queryForReport(
     clientGroups,
   };
 }
+

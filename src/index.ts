@@ -5,7 +5,8 @@ import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
-import { createDb, populateDb, queryForReport } from './lib/localDb.js';
+import { createDb, getSyncMeta, syncDb, queryForReport } from './lib/localDb.js';
+import type { SyncMode } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
 import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
 
@@ -66,13 +67,65 @@ class HOAInformAutomation {
   }
 
   /**
+   * Synchronise the local SQLite cache with Invoice Ninja.
+   *
+   * - `full`        — clears all data, then fetches everything from the API.
+   * - `incremental` — fetches only records changed since the last successful sync.
+   *
+   * This method should be run before generating reports.  It does not produce
+   * any PDF or send any email.
+   */
+  async syncData(mode: SyncMode = 'full'): Promise<void> {
+    const dbPath = process.env.DB_CACHE_PATH;
+    const db = createDb(dbPath);
+    try {
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log(`SYNC — Sincronizando datos desde Invoice Ninja (modo: ${mode})`);
+      console.log('═══════════════════════════════════════════════════════════\n');
+
+      const stats = await syncDb(db, this.invoiceNinja, mode, msg => console.log(msg));
+      const elapsed = (stats.elapsedMs / 1000).toFixed(1);
+
+      console.log('\n══════════════════════════════════════════════════════');
+      console.log(`✓ Sincronización ${mode.toUpperCase()} completada en ${elapsed}s`);
+      console.log(`  Facturas:    ${stats.invoices}`);
+      console.log(`  Pagos:       ${stats.payments}`);
+      console.log(`  Gastos:      ${stats.expenses}`);
+      console.log(`  Clientes:    ${stats.clients}  (${stats.contacts} contactos)`);
+      console.log(`  Grupos:      ${stats.clientGroups}`);
+      console.log(`  Proveedores: ${stats.vendors}`);
+      console.log(`  Categorías:  ${stats.expenseCategories}`);
+      console.log('══════════════════════════════════════════════════════\n');
+    } finally {
+      db.close();
+    }
+  }
+
+  /**
+   * Open the local SQLite cache, verify it has been synced, and return a
+   * `DbQueryResult` for the given date range.  Throws a clear error when the
+   * cache is empty (i.e. `syncData` has never been run).
+   */
+  private openAndQuery(start: Date, end: Date) {
+    const dbPath = process.env.DB_CACHE_PATH;
+    const db = createDb(dbPath);
+    const meta = getSyncMeta(db);
+    if (!meta) {
+      db.close();
+      throw new Error(
+        'La base de datos local no contiene datos.\n' +
+        'Ejecute "npm start sync" (o "npm start sync full") antes de generar reportes.'
+      );
+    }
+    console.log(`ℹ️  Usando datos del caché (último sync: ${meta.lastSyncAt}, modo: ${meta.lastSyncMode})`);
+    return { db, result: queryForReport(db, start, end) };
+  }
+
+  /**
    * Generate and send the HOA income report as a PDF via email.
    *
-   * Report sections:
-   *  1. Header  — title, period dates, generation date
-   *  2. KPI totals — cuotas emitidas, pagos recibidos, CxC inicio, CxC final
-   *  3. Bar chart — payments received in period by client
-   *  4. Bar chart — accounts receivable at end of period by client
+   * Reads all data from the local SQLite cache — does NOT call the Invoice
+   * Ninja API.  Run `syncData()` first to populate the cache.
    */
   async generateAndSendReport(options: ReportOptions = {}): Promise<ReportResult> {
     const {
@@ -91,27 +144,16 @@ class HOAInformAutomation {
 
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
 
-      // --- Populate local SQLite database from Invoice Ninja API ---
-      console.log('Populating local database from Invoice Ninja...');
-      const db = createDb(process.env.DB_CACHE_PATH);
+      const { db, result } = this.openAndQuery(dateRange.start, dateRange.end);
       let reportData;
       let filteredPeriodInvoicesLength = 0;
       let filteredPeriodPaymentsLength = 0;
       let allInvoicesRef: ReturnType<typeof queryForReport>['allInvoices'] = [];
       try {
-        const stats = await populateDb(db, this.invoiceNinja, dateRange.end, msg => console.log(msg));
-        const elapsed = (stats.elapsedMs / 1000).toFixed(1);
-        console.log(
-          `✓ Base de datos lista en ${elapsed}s: ` +
-          `${stats.invoices} facturas, ${stats.payments} pagos, ${stats.expenses} gastos, ` +
-          `${stats.clients} clientes, ${stats.clientGroups} grupos, ` +
-          `${stats.vendors} proveedores, ${stats.expenseCategories} categorías`
-        );
-
         const {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups
-        } = queryForReport(db, dateRange.start, dateRange.end);
+        } = result;
 
         allInvoicesRef = allInvoices;
         filteredPeriodInvoicesLength = periodInvoices.length;
@@ -199,6 +241,9 @@ class HOAInformAutomation {
   /**
    * Preview the HOA report: print KPIs to console and save PDF to disk
    * without sending email.
+   *
+   * Reads all data from the local SQLite cache — does NOT call the Invoice
+   * Ninja API.  Run `syncData()` first to populate the cache.
    */
   async testInform(options: ReportOptions = {}): Promise<ReportResult> {
     const {
@@ -215,27 +260,16 @@ class HOAInformAutomation {
       const dateRange = getDateRange(period, customRange);
       console.log(`📅 Período: ${dateRange.startISO} → ${dateRange.endISO}\n`);
 
-      // --- Populate local SQLite database from Invoice Ninja API ---
-      console.log('🔄 Populando base de datos local desde Invoice Ninja...');
-      const db = createDb(process.env.DB_CACHE_PATH);
+      const { db, result } = this.openAndQuery(dateRange.start, dateRange.end);
       let reportData;
       let periodInvoicesLen = 0;
       let periodPaymentsLen = 0;
       let allInvoicesForStats: ReturnType<typeof queryForReport>['allInvoices'] = [];
       try {
-        const stats = await populateDb(db, this.invoiceNinja, dateRange.end, msg => console.log(msg));
-        const elapsed = (stats.elapsedMs / 1000).toFixed(1);
-        console.log(
-          `\n✓ Base de datos lista en ${elapsed}s: ` +
-          `${stats.invoices} facturas, ${stats.payments} pagos, ${stats.expenses} gastos, ` +
-          `${stats.clients} clientes, ${stats.clientGroups} grupos, ` +
-          `${stats.vendors} proveedores, ${stats.expenseCategories} categorías\n`
-        );
-
         const {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups
-        } = queryForReport(db, dateRange.start, dateRange.end);
+        } = result;
 
         allInvoicesForStats  = allInvoices;
         periodInvoicesLen    = periodInvoices.length;
@@ -370,6 +404,11 @@ async function main(): Promise<void> {
   try {
     if (command === 'test') {
       await automation.testConnections();
+    } else if (command === 'sync') {
+      // "sync" defaults to full; "sync incremental" for incremental mode
+      const rawMode = (args[1] ?? 'full').toLowerCase();
+      const mode: SyncMode = rawMode === 'incremental' ? 'incremental' : 'full';
+      await automation.syncData(mode);
     } else if (command === 'test-inform') {
       const period = (args[1] as PeriodType) || (process.env.REPORT_PERIOD as PeriodType) || 'current-month';
       const result = await automation.testInform({
@@ -400,10 +439,18 @@ async function main(): Promise<void> {
       }
     } else {
       console.log('Uso:');
-      console.log('  npm start test              - Probar conexiones');
-      console.log('  npm start test-inform [período] - Previsualizar reporte (sin email)');
-      console.log('  npm start report [período]  - Generar y enviar reporte');
+      console.log('  npm start sync [full]             - Sincronizar todos los datos desde Invoice Ninja');
+      console.log('  npm start sync incremental        - Sincronizar solo cambios desde la última sincronización');
+      console.log('  npm start test                    - Probar conexiones');
+      console.log('  npm start test-inform [período]   - Previsualizar reporte (sin email, usa caché)');
+      console.log('  npm start report [período]        - Generar y enviar reporte (usa caché)');
+      console.log('');
       console.log('  Períodos: current-month, last-month, current-year, last-year');
+      console.log('');
+      console.log('  Flujo recomendado:');
+      console.log('    1. npm start sync        ← poblar/actualizar el caché');
+      console.log('    2. npm start test-inform ← verificar resultado');
+      console.log('    3. npm start report      ← generar y enviar por email');
     }
   } catch (error) {
     console.error('\n✗ Error:', (error as Error).message);

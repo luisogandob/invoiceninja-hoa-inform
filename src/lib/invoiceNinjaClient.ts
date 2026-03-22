@@ -60,6 +60,20 @@ export interface Expense {
 }
 
 /**
+ * Client contact interface (Invoice Ninja v5 embeds contacts in client objects)
+ */
+export interface ClientContact {
+  id: string;
+  client_id?: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  /** True when this contact is the primary/default contact for the client */
+  is_primary?: boolean;
+}
+
+/**
  * Client interface
  */
 export interface Client {
@@ -69,6 +83,11 @@ export interface Client {
   group_settings_id?: string;
   /** True when the record has been soft-deleted in Invoice Ninja */
   is_deleted?: boolean;
+  /**
+   * Contacts embedded in the client object.
+   * Available when the API is called with `include: 'contacts'` or by default in IN v5.
+   */
+  contacts?: ClientContact[];
 }
 
 /**
@@ -155,6 +174,17 @@ export interface Payment {
 }
 
 /**
+ * Filter parameters for clients
+ */
+export interface ClientFilters {
+  per_page?: number;
+  page?: number;
+  /** Unix timestamp — only return clients updated at or after this time (for incremental sync) */
+  updated_at?: number;
+  [key: string]: any;
+}
+
+/**
  * Filter parameters for expenses
  */
 export interface ExpenseFilters {
@@ -162,6 +192,8 @@ export interface ExpenseFilters {
   page?: number;
   start_date?: string;  // Format: YYYY-MM-DD
   end_date?: string;    // Format: YYYY-MM-DD
+  /** Unix timestamp — only return records updated at or after this time (for incremental sync) */
+  updated_at?: number;
   [key: string]: any;
 }
 
@@ -174,6 +206,8 @@ export interface InvoiceFilters {
   status?: string;
   start_date?: string;  // Format: YYYY-MM-DD
   end_date?: string;    // Format: YYYY-MM-DD
+  /** Unix timestamp — only return records updated at or after this time (for incremental sync) */
+  updated_at?: number;
   [key: string]: any;
 }
 
@@ -185,6 +219,8 @@ export interface PaymentFilters {
   page?: number;
   start_date?: string;  // Format: YYYY-MM-DD
   end_date?: string;    // Format: YYYY-MM-DD
+  /** Unix timestamp — only return records updated at or after this time (for incremental sync) */
+  updated_at?: number;
   [key: string]: any;
 }
 
@@ -294,11 +330,12 @@ class InvoiceNinjaClient {
   }
 
   /**
-   * Get all clients with automatic pagination
+   * Get all clients with automatic pagination.
+   * Pass `filters.updated_at` (Unix timestamp) to only return clients changed since that time.
    */
-  async getClients(onPage?: OnPageFetched): Promise<Client[]> {
+  async getClients(filters: ClientFilters = {}, onPage?: OnPageFetched): Promise<Client[]> {
     try {
-      return await this.fetchAllPages<Client>('/clients', {}, onPage);
+      return await this.fetchAllPages<Client>('/clients', filters, onPage);
     } catch (error) {
       console.error('Error fetching clients:', (error as Error).message);
       throw error;
@@ -308,9 +345,9 @@ class InvoiceNinjaClient {
   /**
    * Get all client groups (Invoice Ninja "Group Settings") with automatic pagination
    */
-  async getClientGroups(onPage?: OnPageFetched): Promise<ClientGroup[]> {
+  async getClientGroups(filters: Record<string, any> = {}, onPage?: OnPageFetched): Promise<ClientGroup[]> {
     try {
-      return await this.fetchAllPages<ClientGroup>('/group_settings', {}, onPage);
+      return await this.fetchAllPages<ClientGroup>('/group_settings', filters, onPage);
     } catch (error) {
       console.error('Error fetching client groups:', (error as Error).message);
       throw error;
@@ -320,9 +357,9 @@ class InvoiceNinjaClient {
   /**
    * Get all vendors with automatic pagination
    */
-  async getVendors(onPage?: OnPageFetched): Promise<Vendor[]> {
+  async getVendors(filters: Record<string, any> = {}, onPage?: OnPageFetched): Promise<Vendor[]> {
     try {
-      return await this.fetchAllPages<Vendor>('/vendors', {}, onPage);
+      return await this.fetchAllPages<Vendor>('/vendors', filters, onPage);
     } catch (error) {
       console.error('Error fetching vendors:', (error as Error).message);
       throw error;
@@ -332,9 +369,9 @@ class InvoiceNinjaClient {
   /**
    * Get expense categories with automatic pagination
    */
-  async getExpenseCategories(onPage?: OnPageFetched): Promise<ExpenseCategory[]> {
+  async getExpenseCategories(filters: Record<string, any> = {}, onPage?: OnPageFetched): Promise<ExpenseCategory[]> {
     try {
-      return await this.fetchAllPages<ExpenseCategory>('/expense_categories', {}, onPage);
+      return await this.fetchAllPages<ExpenseCategory>('/expense_categories', filters, onPage);
     } catch (error) {
       console.error('Error fetching expense categories:', (error as Error).message);
       throw error;
