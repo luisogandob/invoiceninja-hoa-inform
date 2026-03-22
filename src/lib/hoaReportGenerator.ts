@@ -196,15 +196,6 @@ class HoaReportGenerator {
     const arLabels       = JSON.stringify(arByGroup.map(a => a.groupName));
     const arValues       = JSON.stringify(arByGroup.map(a => a.balance));
 
-    // KPI card definitions passed to Chart.js as JSON
-    const kpiData = JSON.stringify([
-      { id: 'kpi-invoiced', lines: ['Cuotas Emitidas', 'en el Período'],       value: `$${fmt(totalInvoicedInPeriod)}`  },
-      { id: 'kpi-payments', lines: ['Pagos Recibidos', 'en el Período'],       value: `$${fmt(totalPaymentsInPeriod)}`  },
-      { id: 'kpi-ar-start', lines: ['Cuentas x Cobrar', 'Inicio del Período'], value: `$${fmt(arAtPeriodStart)}`        },
-      { id: 'kpi-ar-end',   lines: ['Cuentas x Cobrar', 'Final del Período'],  value: `$${fmt(arAtPeriodEnd)}`          },
-      { id: 'kpi-expenses', lines: ['Gastos', 'del Período'],                  value: `$${fmt(totalExpensesInPeriod)}`  }
-    ]);
-
     // Warn early (server-side) when the scheme string looks invalid so users
     // notice the issue in the logs rather than silently getting the fallback.
     const [schemeGroup, schemeKey] = this.colorScheme.split('.');
@@ -224,6 +215,28 @@ class HoaReportGenerator {
       ),
       ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2980b9']);
     const paletteJson = JSON.stringify(resolvedPalette);
+
+    /** Render a single KPI card as a colored HTML div. */
+    const kpiCard = (lines: string[], value: string, colorIndex: number): string => {
+      const bg = resolvedPalette[colorIndex % resolvedPalette.length];
+      const linesHtml = lines
+        .map(l => `<div class="kpi-label">${this.esc(l)}</div>`)
+        .join('');
+      return `
+    <div class="kpi-stat" style="background:${bg};">
+      ${linesHtml}
+      <div class="kpi-value">${this.esc(value)}</div>
+    </div>`;
+    };
+
+    // KPI card definitions: [label lines, formatted value, palette index]
+    const kpiCards: Array<[string[], string, number]> = [
+      [['Cuotas Emitidas', 'en el Período'],       `$${fmt(totalInvoicedInPeriod)}`,  0],
+      [['Pagos Recibidos', 'en el Período'],        `$${fmt(totalPaymentsInPeriod)}`,  1],
+      [['Cuentas x Cobrar', 'Inicio del Período'],  `$${fmt(arAtPeriodStart)}`,        2],
+      [['Cuentas x Cobrar', 'Final del Período'],   `$${fmt(arAtPeriodEnd)}`,          3],
+      [['Gastos', 'del Período'],                   `$${fmt(totalExpensesInPeriod)}`,  4],
+    ];
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -249,10 +262,33 @@ class HoaReportGenerator {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 16px;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
-    .kpi-card { display: flex; justify-content: center; align-items: center; }
     .kpi-single { display: flex; justify-content: center; margin-bottom: 40px; }
+    .kpi-single .kpi-stat { width: calc(50% - 8px); }
+
+    /* ── KPI stat card ── */
+    .kpi-stat {
+      border-radius: 10px;
+      padding: 22px 20px 18px;
+      text-align: center;
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .kpi-label {
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      opacity: .88;
+      line-height: 1.4;
+    }
+    .kpi-value {
+      font-size: 28px;
+      font-weight: bold;
+      margin-top: 10px;
+      letter-spacing: -.5px;
+    }
 
     /* ── Section titles ── */
     .section-title {
@@ -283,15 +319,15 @@ class HoaReportGenerator {
 
   <!-- ── KPI big numbers (2×2 grid) ── -->
   <div class="kpi-grid">
-    <div class="kpi-card"><canvas id="kpi-invoiced" width="310" height="230"></canvas></div>
-    <div class="kpi-card"><canvas id="kpi-payments" width="310" height="230"></canvas></div>
-    <div class="kpi-card"><canvas id="kpi-ar-start" width="310" height="230"></canvas></div>
-    <div class="kpi-card"><canvas id="kpi-ar-end"   width="310" height="230"></canvas></div>
+    ${kpiCard(...kpiCards[0])}
+    ${kpiCard(...kpiCards[1])}
+    ${kpiCard(...kpiCards[2])}
+    ${kpiCard(...kpiCards[3])}
   </div>
 
   <!-- ── KPI: Gastos (centered) ── -->
   <div class="kpi-single">
-    <div class="kpi-card"><canvas id="kpi-expenses" width="310" height="230"></canvas></div>
+    ${kpiCard(...kpiCards[4])}
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group ── -->
@@ -320,76 +356,6 @@ class HoaReportGenerator {
     var palette = ${paletteJson};
 
     function getColor(i) { return palette[i % palette.length]; }
-
-    /* ── Center-text plugin: renders label + value inside a doughnut hole ── */
-    /* Compatible with Chart.js 4.x plugin API */
-    Chart.register({
-      id: 'centerText',
-      afterDraw: function (chart) {
-        var ct = chart.options.centerText;
-        if (!ct) return;
-
-        var ctx = chart.ctx;
-        var cx  = (chart.chartArea.left + chart.chartArea.right)  / 2;
-        var cy  = (chart.chartArea.top  + chart.chartArea.bottom) / 2;
-        var lines = ct.lines || [];
-
-        var labelSize = 10;
-        var valueSize = 20;
-        var lineH     = 14;
-        var gap       = 5;
-        var totalH    = lines.length * lineH + gap + valueSize;
-        var y         = cy - totalH / 2;
-
-        ctx.save();
-        ctx.textAlign    = 'center';
-        ctx.textBaseline = 'top';
-
-        /* label lines */
-        ctx.fillStyle = 'rgba(255,255,255,0.88)';
-        ctx.font      = 'bold ' + labelSize + 'px Arial, sans-serif';
-        lines.forEach(function (line) {
-          ctx.fillText(line, cx, y);
-          y += lineH;
-        });
-
-        y += gap;
-
-        /* value */
-        ctx.fillStyle = '#ffffff';
-        ctx.font      = 'bold ' + valueSize + 'px Arial, sans-serif';
-        ctx.fillText(ct.value, cx, y);
-
-        ctx.restore();
-      }
-    });
-
-    /* ── KPI doughnut big-number cards ── */
-    var kpiData = ${kpiData};
-    kpiData.forEach(function (kpi, index) {
-      var el = document.getElementById(kpi.id);
-      if (!el) return;
-      new Chart(el, {
-        type: 'doughnut',
-        data: {
-          datasets: [{
-            data: [1],
-            backgroundColor: [getColor(index)],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          cutout: '72%',
-          responsive: false,
-          animation:  false,
-          plugins: {
-            legend:      { display: false },
-            tooltip:     { enabled: false },
-            centerText:  { lines: kpi.lines, value: kpi.value }
-          }
-        }
-      });
-    });
 
     /* ── Bar chart helper ── */
     function buildBarChart(canvasId, labels, values) {
