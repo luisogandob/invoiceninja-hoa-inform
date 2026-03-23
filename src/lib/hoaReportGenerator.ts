@@ -380,36 +380,36 @@ class HoaReportGenerator {
           const subLineHtml = entry.subLine
             ? `<div class="cf-subline">${this.esc(entry.subLine)}</div>`
             : '';
-          const numberHtml = entry.number ? this.esc(entry.number) : '—';
+          const numberSecondLine = entry.number
+            ? `<div class="cf-num-secondary">${this.esc(entry.number)}</div>`
+            : '';
           return `<tr>
             <td class="cf-icon-cell">${icon}</td>
-            <td class="cf-date-cell">${this.esc(fmtDate1(entry.date))}</td>
-            <td class="cf-num-cell">${numberHtml}</td>
+            <td class="cf-date-cell">${this.esc(fmtDate1(entry.date))}${numberSecondLine}</td>
             <td>${this.esc(entry.name)}${subLineHtml}</td>
             <td class="cf-amount-cell">${amountStr}</td>
           </tr>`;
         }).join('\n          ')
-      : `<tr><td colspan="5" class="no-data">Sin movimientos en el período.</td></tr>`;
+      : `<tr><td colspan="4" class="no-data">Sin movimientos en el período.</td></tr>`;
 
     const cashFlowHtml = `
     <table class="cf-table">
       <thead>
         <tr>
           <th></th>
-          <th>Fecha</th>
-          <th>Número</th>
-          <th>Nombre</th>
+          <th>Fecha / Número</th>
+          <th>Descripción</th>
           <th class="cf-amount-cell">Monto</th>
         </tr>
       </thead>
       <tbody>
         ${cfRowsHtml}
         <tr class="cf-totals-row">
-          <td colspan="4" class="cf-total-label">Total de Pagos Recibidos</td>
+          <td colspan="3" class="cf-total-label">Total de Pagos Recibidos</td>
           <td class="cf-amount-cell cf-total-in">+$${fmt(cfTotalIn)}</td>
         </tr>
         <tr class="cf-totals-row">
-          <td colspan="4" class="cf-total-label">Total de Pagos Realizados</td>
+          <td colspan="3" class="cf-total-label">Total de Pagos Realizados</td>
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
       </tbody>
@@ -583,7 +583,7 @@ class HoaReportGenerator {
     .cf-icon--in  { color: #16a34a; }
     .cf-icon--out { color: #dc2626; }
     .cf-date-cell { white-space: nowrap; font-size: 11px; }
-    .cf-num-cell  { font-size: 11px; color: #6b7280; white-space: nowrap; }
+    .cf-num-secondary { font-size: 10px; color: #6b7280; margin-top: 1px; }
     .cf-subline   { font-size: 10px; color: #6b7280; margin-top: 2px; }
     .cf-amount-cell { text-align: right; white-space: nowrap; font-size: 12px; }
     .cf-amount { font-weight: 600; }

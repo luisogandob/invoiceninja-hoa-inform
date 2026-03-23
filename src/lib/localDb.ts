@@ -57,6 +57,7 @@ const SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS expenses (
     id           TEXT    PRIMARY KEY,
+    number       TEXT,
     vendor_id    TEXT,
     category_id  TEXT,
     amount       REAL    NOT NULL DEFAULT 0,
@@ -147,6 +148,7 @@ interface PaymentableRow {
 
 interface ExpenseRow {
   id: string;
+  number: string | null;
   vendor_id: string | null;
   category_id: string | null;
   amount: number;
@@ -263,6 +265,9 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
     .map(c => c.name);
   if (!expenseCols.includes('public_notes')) {
     db.exec(`ALTER TABLE expenses ADD COLUMN public_notes TEXT`);
+  }
+  if (!expenseCols.includes('number')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN number TEXT`);
   }
   return db;
 }
@@ -400,8 +405,8 @@ export async function syncDb(
   `);
   const deletePaymentables = db.prepare(`DELETE FROM paymentables WHERE payment_id = ?`);
   const stmtExpense = db.prepare(`
-    INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, public_notes, is_deleted)
-    VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
+    INSERT OR REPLACE INTO expenses(id, number, vendor_id, category_id, amount, date, payment_date, public_notes, is_deleted)
+    VALUES (@id, @number, @vendor_id, @category_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
   `);
   const stmtClient = db.prepare(`
     INSERT OR REPLACE INTO clients(id, name, group_settings_id, custom_value2, is_deleted)
@@ -494,6 +499,7 @@ export async function syncDb(
     for (const e of expenses) {
       stmtExpense.run({
         id:           e.id ?? '',
+        number:       e.number ?? null,
         vendor_id:    e.vendor_id ?? null,
         category_id:  e.category_id ?? null,
         amount:       Number(e.amount) || 0,
@@ -619,6 +625,7 @@ function rowToInvoice(row: InvoiceRow): Invoice {
 function rowToExpense(row: ExpenseRow): Expense {
   return {
     id:            row.id,
+    number:        row.number        ?? undefined,
     vendor_id:     row.vendor_id     ?? undefined,
     category_id:   row.category_id   ?? undefined,
     amount:        row.amount,

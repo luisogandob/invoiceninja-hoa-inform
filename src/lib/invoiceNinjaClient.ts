@@ -33,6 +33,8 @@ interface ApiResponse<T> {
  */
 export interface Expense {
   id?: string;
+  /** Expense document number assigned by Invoice Ninja (e.g. "EXP-0001") */
+  number?: string;
   amount: number;
   date?: string;
   expense_date?: string;

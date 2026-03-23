@@ -568,14 +568,19 @@ export function buildHoaReportData(
         return !isBefore(d, periodStart) && !isAfter(d, periodEnd);
       } catch { return false; }
     })
-    .map(e => ({
-      type:    'expense' as const,
-      date:    e.payment_date!,
-      number:  '',
-      name:    e.vendor_name || e.vendor?.name || 'Sin Suplidor',
-      amount:  parseFloat(String(e.amount || 0)),
-      subLine: e.public_notes || ''
-    }));
+    .map(e => {
+      const categoryPart = e.category_name || e.category?.name || '';
+      const notesPart    = e.public_notes || '';
+      const subLine = [categoryPart, notesPart].filter(Boolean).join(' • ');
+      return {
+        type:    'expense' as const,
+        date:    e.payment_date!,
+        number:  e.number || '',
+        name:    e.vendor_name || e.vendor?.name || 'Sin Suplidor',
+        amount:  parseFloat(String(e.amount || 0)),
+        subLine,
+      };
+    });
 
   // Merge and sort ascending by date string (YYYY-MM-DD lexicographic = chronological)
   const cashFlowEntries: CashFlowEntry[] = [...cfPayments, ...cfExpenses]
