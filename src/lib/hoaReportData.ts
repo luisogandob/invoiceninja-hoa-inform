@@ -20,7 +20,10 @@ export interface HoaReportData {
   totalPaymentsInPeriod: number;
   /** Total expenses registered during the period */
   totalExpensesInPeriod: number;
-  /** Total expenses paid (payment_date within the period) */
+  /**
+   * Total expenses that were both created in the period (expense.date within period)
+   * and paid within the same period (payment_date within period).
+   */
   totalExpensesPaidInPeriod: number;
   /** Accounts receivable at the START of the period */
   arAtPeriodStart: number;
@@ -28,15 +31,15 @@ export interface HoaReportData {
   arAtPeriodEnd: number;
   /**
    * Accounts payable at the START of the period.
-   * Not applicable — CxP represents the current outstanding balance of unpaid
-   * expenses, not a time-bounded accumulation. Always 0.
+   * Sum of allExpenses where expense.date ≤ periodStart AND
+   * (no payment_date OR payment_date > periodStart).
    */
   apAtPeriodStart: number;
   /**
-   * Accounts payable: sum of ALL registered expenses that have no payment_date
-   * (i.e. have not been marked as paid in Invoice Ninja).
-   * Future-dated expenses are not expected in normal HOA workflows; if they
-   * appear they will be included, consistent with the platform view.
+   * Accounts payable at the END of the period.
+   * Sum of allExpenses where expense.date ≤ periodEnd AND
+   * (no payment_date OR payment_date > periodEnd).
+   * Matches the Invoice Ninja "outstanding expenses" view at period end.
    */
   apAtPeriodEnd: number;
 
@@ -82,7 +85,12 @@ const NO_GROUP_LABEL = 'Sin Grupo';
  * Calculation notes:
  *  - totalInvoicedInPeriod : sum of invoice.amount for invoices issued within the period
  *  - totalPaymentsInPeriod : sum of payment.amount for payments received within the period
- *  - totalExpensesInPeriod : sum of expense.amount for expenses registered within the period
+ *  - totalExpensesInPeriod        : sum of expense.amount for expenses registered within the period
+ *  - totalExpensesPaidInPeriod    : sum of expense.amount for period expenses whose payment_date
+ *                                   is also within the period
+ *  - apAtPeriodEnd                : sum of allExpenses where expense.date ≤ periodEnd AND
+ *                                   (!payment_date OR payment_date > periodEnd)
+ *  - apAtPeriodStart              : same logic with periodStart boundary
  *  - arAtPeriodEnd         : sum of invoice.balance for every invoice issued on or before
  *                            periodEnd (balance is the current outstanding amount)
  *  - arAtPeriodStart       : derived via accounting identity:
@@ -165,8 +173,9 @@ export function buildHoaReportData(
   );
 
   // --- Expenses paid within the period ---
-  // An expense is "paid in the period" when its payment_date falls within [periodStart, periodEnd].
-  const totalExpensesPaidInPeriod = allExpenses
+  // Only expenses created IN the period (periodExpenses) AND whose payment_date
+  // also falls within [periodStart, periodEnd] count as "paid in the period".
+  const totalExpensesPaidInPeriod = periodExpenses
     .filter(e => {
       if (!e.payment_date) return false;
       try {
@@ -305,16 +314,29 @@ export function buildHoaReportData(
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   // --- Accounts payable ---
-  // An expense is considered payable (outstanding) when it has no payment_date,
-  // i.e. it has never been marked as paid in Invoice Ninja.
+  // An expense contributes to CxP at a given boundary date if:
+  //   1. It was created on or before the boundary (expense.date ≤ boundary), AND
+  //   2. It has no payment_date (never paid), OR its payment_date is after the boundary.
+  // This mirrors the Invoice Ninja "Expenses" outstanding view at a point in time.
+  const isExpenseUnpaidAt = (e: Expense, boundary: Date): boolean => {
+    const dateStr = e.date;
+    if (!dateStr) return false;
+    try {
+      const expDate = parseISO(dateStr);
+      if (isAfter(expDate, boundary)) return false; // created after boundary — not counted yet
+      if (!e.payment_date) return true;             // no payment — outstanding
+      const payDate = parseISO(e.payment_date);
+      return isAfter(payDate, boundary);            // paid after boundary — still outstanding at boundary
+    } catch { return false; }
+  };
+
   const apAtPeriodEnd = allExpenses
-    .filter(e => !e.payment_date)
+    .filter(e => isExpenseUnpaidAt(e, periodEnd))
     .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
 
-  // apAtPeriodStart: derive from apAtPeriodEnd by adding back the expenses paid during
-  // the period — those payments reduced the outstanding CxP balance.
-  // This lets the kpiBalance trend widget show a ▼ (decrease) equal to the expenses paid.
-  const apAtPeriodStart = apAtPeriodEnd + totalExpensesPaidInPeriod;
+  const apAtPeriodStart = allExpenses
+    .filter(e => isExpenseUnpaidAt(e, periodStart))
+    .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
 
   return {
     title,
