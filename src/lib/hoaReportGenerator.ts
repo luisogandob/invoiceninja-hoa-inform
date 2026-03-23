@@ -889,7 +889,7 @@ class HoaReportGenerator {
     /* Unit header row */
     .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 4px 2px; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; height: 40px; vertical-align: bottom; }
     /* Group divider — left border on the first column of every client group */
-    .hm-group-first { border-left: 2px solid #9ca3af !important; }
+    .hm-group-first { border-left: 2px solid #ffffff !important; }
     /* Data cells */
     .hm-cell { height: 16px; padding: 0; }
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
