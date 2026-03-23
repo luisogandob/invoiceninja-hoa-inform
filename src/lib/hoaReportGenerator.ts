@@ -360,12 +360,12 @@ class HoaReportGenerator {
     const cfResult   = cfTotalIn - cfTotalOut;
     const cfResultSign = cfResult >= 0 ? '+' : '';
 
-    /** Format a YYYY-MM-DD date string: returns [dayMonth, year] for a 2-line display */
-    const fmtDate2 = (dateStr: string): [string, string] => {
-      if (!dateStr) return ['', ''];
+    /** Format a YYYY-MM-DD date string as a single dd/mm/yyyy line */
+    const fmtDate1 = (dateStr: string): string => {
+      if (!dateStr) return '';
       const parts = dateStr.split('-');
-      if (parts.length < 3) return [dateStr, ''];
-      return [`${parts[2]}/${parts[1]}`, parts[0]];
+      if (parts.length < 3) return dateStr;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
     };
 
     const cfRowsHtml = cashFlowEntries.length > 0
@@ -381,10 +381,9 @@ class HoaReportGenerator {
             ? `<div class="cf-subline">${this.esc(entry.subLine)}</div>`
             : '';
           const numberHtml = entry.number ? this.esc(entry.number) : '—';
-          const [dayMonth, year] = fmtDate2(entry.date);
           return `<tr>
             <td class="cf-icon-cell">${icon}</td>
-            <td class="cf-date-cell">${this.esc(dayMonth)}<br><span class="cf-year">${this.esc(year)}</span></td>
+            <td class="cf-date-cell">${this.esc(fmtDate1(entry.date))}</td>
             <td class="cf-num-cell">${numberHtml}</td>
             <td>${this.esc(entry.name)}${subLineHtml}</td>
             <td class="cf-amount-cell">${amountStr}</td>
@@ -405,21 +404,19 @@ class HoaReportGenerator {
       </thead>
       <tbody>
         ${cfRowsHtml}
-      </tbody>
-      <tfoot>
-        <tr>
+        <tr class="cf-totals-row">
           <td colspan="4" class="cf-total-label">Total de Pagos Recibidos</td>
           <td class="cf-amount-cell cf-total-in">+$${fmt(cfTotalIn)}</td>
         </tr>
-        <tr>
+        <tr class="cf-totals-row">
           <td colspan="4" class="cf-total-label">Total de Pagos Realizados</td>
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
-        <tr class="cf-result-row">
+        <tr class="cf-totals-row cf-result-row">
           <td colspan="4" class="cf-total-label">Resultado del Período</td>
           <td class="cf-amount-cell">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
         </tr>
-      </tfoot>
+      </tbody>
     </table>`;
 
     return `<!DOCTYPE html>
@@ -586,19 +583,18 @@ class HoaReportGenerator {
     .cf-icon--in  { color: #16a34a; }
     .cf-icon--out { color: #dc2626; }
     .cf-date-cell { white-space: nowrap; font-size: 11px; }
-    .cf-year { font-size: 10px; color: #9ca3af; }
     .cf-num-cell  { font-size: 11px; color: #6b7280; white-space: nowrap; }
     .cf-subline   { font-size: 10px; color: #6b7280; margin-top: 2px; }
     .cf-amount-cell { text-align: right; white-space: nowrap; font-size: 12px; }
     .cf-amount { font-weight: 600; }
     .cf-amount--in  { color: #16a34a; }
     .cf-amount--out { color: #dc2626; }
-    .cf-table tfoot td {
+    .cf-totals-row td {
       font-weight: 700;
       border-bottom: none;
       background: #f9fafb;
     }
-    .cf-table tfoot tr:first-child td { border-top: 2px solid #1e2d3d; }
+    .cf-totals-row:first-of-type td { border-top: 2px solid #1e2d3d; }
     .cf-total-label { font-size: 12px; }
     .cf-total-in  { color: #16a34a; }
     .cf-total-out { color: #dc2626; }

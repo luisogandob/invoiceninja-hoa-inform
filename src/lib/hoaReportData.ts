@@ -153,7 +153,7 @@ export interface CashFlowEntry {
   type: 'payment' | 'expense';
   /** YYYY-MM-DD — used for chronological sorting and display */
   date: string;
-  /** Transaction reference (payments) or empty string (expenses) */
+  /** Payment number (e.g. "PAY-0001") for payments, or empty string for expenses */
   number: string;
   /** Client name (payment) or vendor name (expense) */
   name: string;
@@ -550,8 +550,8 @@ export function buildHoaReportData(
     return {
       type:    'payment',
       date:    p.date || p.payment_date || '',
-      number:  p.transaction_reference || '',
-      name:    p.client_name || p.client?.name || 'Sin Cliente',
+      number:  p.number || '',
+      name:    (p.client_id && clientById.get(p.client_id)?.name) || p.client_name || p.client?.name || 'Sin Cliente',
       amount:  parseFloat(String(p.amount || 0)),
       subLine: invoiceParts.join(', ')
     };

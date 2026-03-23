@@ -35,6 +35,7 @@ const SCHEMA_SQL = `
     id                    TEXT    PRIMARY KEY,
     client_id             TEXT,
     client_name           TEXT,
+    number                TEXT,
     amount                REAL    NOT NULL DEFAULT 0,
     date                  TEXT,
     transaction_reference TEXT,
@@ -131,6 +132,7 @@ interface PaymentRow {
   id: string;
   client_id: string | null;
   client_name: string | null;
+  number: string | null;
   amount: number;
   date: string | null;
   transaction_reference: string | null;
@@ -252,6 +254,9 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
     .map(c => c.name);
   if (!paymentCols.includes('transaction_reference')) {
     db.exec(`ALTER TABLE payments ADD COLUMN transaction_reference TEXT`);
+  }
+  if (!paymentCols.includes('number')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN number TEXT`);
   }
   // Migrate: add public_notes column to expenses if missing
   const expenseCols = (db.prepare(`PRAGMA table_info(expenses)`).all() as Array<{ name: string }>)
@@ -386,8 +391,8 @@ export async function syncDb(
     VALUES (@id, @client_id, @client_name, @number, @amount, @balance, @date, @is_deleted)
   `);
   const stmtPayment = db.prepare(`
-    INSERT OR REPLACE INTO payments(id, client_id, client_name, amount, date, transaction_reference, is_deleted)
-    VALUES (@id, @client_id, @client_name, @amount, @date, @transaction_reference, @is_deleted)
+    INSERT OR REPLACE INTO payments(id, client_id, client_name, number, amount, date, transaction_reference, is_deleted)
+    VALUES (@id, @client_id, @client_name, @number, @amount, @date, @transaction_reference, @is_deleted)
   `);
   const stmtPaymentable = db.prepare(`
     INSERT OR REPLACE INTO paymentables(payment_id, invoice_id, amount)
@@ -458,6 +463,7 @@ export async function syncDb(
         id:                    pid,
         client_id:             p.client_id ?? null,
         client_name:           resolveClientName(p),
+        number:                p.number ?? null,
         amount:                Number(p.amount) || 0,
         date:                  resolveDate(p, 'payment_date'),
         transaction_reference: p.transaction_reference ?? null,
@@ -695,12 +701,13 @@ export function queryForReport(
   // Assemble Payment objects with paymentables attached
   const periodPayments: Payment[] = paymentRows.map(row => ({
     id:                    row.id,
-    client_id:             row.client_id    ?? undefined,
-    client_name:           row.client_name  ?? undefined,
+    number:                row.number           ?? undefined,
+    client_id:             row.client_id        ?? undefined,
+    client_name:           row.client_name      ?? undefined,
     amount:                row.amount,
-    date:                  row.date         ?? undefined,
+    date:                  row.date             ?? undefined,
     transaction_reference: row.transaction_reference ?? undefined,
-    is_deleted:            row.is_deleted   === 1,
+    is_deleted:            row.is_deleted       === 1,
     paymentables:          paymentablesMap.get(row.id) ?? [],
   }));
 

@@ -146,6 +146,7 @@ export interface Invoice {
  */
 export interface Payment {
   id?: string;
+  number?: string;
   amount: number;
   date?: string;
   payment_date?: string;
