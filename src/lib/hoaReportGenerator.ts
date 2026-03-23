@@ -208,6 +208,7 @@ class HoaReportGenerator {
       apAgingBuckets,
       apByVendor,
       cashFlowEntries,
+      paymentHeatmap,
       perpetualResult,
       bankBalance
     } = data;
@@ -457,6 +458,62 @@ class HoaReportGenerator {
       apAgingBuckets.aged61_90, apAgingBuckets.aged90plus
     ]);
     const apDoughnutColors  = JSON.stringify(['#22c55e', '#f59e0b', '#f97316', '#ef4444']);
+
+    // ── Payment heatmap HTML (Comportamiento Histórico de Pagos) ────────────
+    const hmColKeys = paymentHeatmap.columnKeys;
+    const statusClass: Record<string, string> = {
+      paid_0_35: 'hm-c-paid-0-35',
+      paid_36_60: 'hm-c-paid-36-60',
+      paid_61_90: 'hm-c-paid-61-90',
+      paid_90plus: 'hm-c-paid-90plus',
+      pending: 'hm-c-pending',
+      none: 'hm-c-none',
+    };
+
+    // Group header row (merged cells per group)
+    const hmGroupHeaderCells = paymentHeatmap.groups.map(g =>
+      `<th class="hm-group-hdr" colspan="${g.units.length}">${this.esc(g.groupName)}</th>`
+    ).join('');
+
+    // Unit header row
+    const hmUnitHeaderCells = hmColKeys.map(ck => {
+      const unitLabel = ck.split('|')[1] ?? ck;
+      return `<th class="hm-unit-hdr">${this.esc(unitLabel)}</th>`;
+    }).join('');
+
+    // Data rows
+    const hmDataRows = paymentHeatmap.rows.map(row => {
+      const dataCells = hmColKeys.map(ck =>
+        `<td class="hm-cell ${statusClass[row.cells[ck] ?? 'none']}"></td>`
+      ).join('');
+      return `<tr><td class="hm-month-col">${this.esc(row.monthLabel)}</td>${dataCells}</tr>`;
+    }).join('\n        ');
+
+    const heatmapHtml = hmColKeys.length > 0
+      ? `<table class="heatmap-table">
+        <thead>
+          <tr>
+            <th class="hm-month-col"></th>
+            ${hmGroupHeaderCells}
+          </tr>
+          <tr>
+            <th class="hm-month-col"></th>
+            ${hmUnitHeaderCells}
+          </tr>
+        </thead>
+        <tbody>
+        ${hmDataRows}
+        </tbody>
+      </table>
+      <div class="hm-legend">
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-0-35"></div>Pagado ≤35 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-36-60"></div>Pagado 36–60 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-61-90"></div>Pagado 61–90 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-90plus"></div>Pagado +90 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-pending"></div>Facturas pendientes</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-none"></div>Sin facturas</div>
+      </div>`
+      : '<p class="no-data">Sin datos históricos disponibles.</p>';
 
     // ── Category table HTML (built server-side) ──────────────────────────────
     const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
@@ -800,6 +857,50 @@ class HoaReportGenerator {
       font-weight: 800;
       letter-spacing: -0.02em;
     }
+
+    /* ── Comportamiento Histórico de Pagos — landscape heatmap ── */
+    @page heatmap-ls { size: A4 landscape; margin: 0.5cm 0.5cm 1cm; }
+    .page-heatmap { page: heatmap-ls; }
+
+    .heatmap-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 10px;
+    }
+    .heatmap-table th,
+    .heatmap-table td {
+      border: 1px solid #e5e7eb;
+      text-align: center;
+      vertical-align: middle;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    /* Month-label first column */
+    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #374151; background: #f9fafb; }
+    /* Group header row */
+    .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
+    /* Unit header row */
+    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 3px 2px; }
+    /* Data cells */
+    .hm-cell { height: 16px; padding: 0; }
+    .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
+    .hm-c-paid-36-60  { background: #86efac; }   /* light green    36-60 d */
+    .hm-c-paid-61-90  { background: #bef264; }   /* yellow-green   61-90 d */
+    .hm-c-paid-90plus { background: #fde047; }   /* yellow          >90 d  */
+    .hm-c-pending     { background: #fdba74; }   /* light orange — pending */
+    .hm-c-none        { background: #f3f4f6; }   /* light grey  — no invs  */
+    /* Heatmap legend */
+    .hm-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+      font-size: 9px;
+      color: #374151;
+    }
+    .hm-legend-item { display: flex; align-items: center; gap: 4px; }
+    .hm-legend-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #d1d5db; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -843,7 +944,16 @@ class HoaReportGenerator {
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
-  <!-- ── Página 2: Análisis de Gastos ── -->
+  <!-- ── Página 2: Comportamiento Histórico de Pagos (landscape) ── -->
+  <div class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Comportamiento Histórico de Pagos</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+    ${heatmapHtml}
+  </div>
+
+  <!-- ── Página 3: Análisis de Gastos ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Gastos</h1>
@@ -867,7 +977,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 3: Análisis de Cuentas x Cobrar ── -->
+  <!-- ── Página 4: Análisis de Cuentas x Cobrar ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Cobrar</h1>
@@ -893,7 +1003,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 4: Análisis de Cuentas x Pagar ── -->
+  <!-- ── Página 5: Análisis de Cuentas x Pagar ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Pagar</h1>
@@ -918,7 +1028,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 5: Flujo de Efectivo ── -->
+  <!-- ── Página 6: Flujo de Efectivo ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>

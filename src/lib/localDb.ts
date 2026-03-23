@@ -231,6 +231,12 @@ export interface DbQueryResult {
    * Used to compute the perpetual (all-time) cash-flow result.
    */
   allTimeExpensesPaidTotal: number;
+  /**
+   * Maps invoice_id → the latest payment date (YYYY-MM-DD) applied to that invoice.
+   * Covers ALL payments ever recorded (not just the report period).
+   * Used to determine when each invoice was fully paid for the payment heatmap.
+   */
+  invoiceLastPaymentDate: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -783,6 +789,17 @@ export function queryForReport(
       SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
       WHERE payment_date IS NOT NULL AND payment_date <= ? AND is_deleted = 0
     `).get(endISO) as { total: number }).total,
+    invoiceLastPaymentDate: Object.fromEntries(
+      (db.prepare(`
+        SELECT pa.invoice_id, MAX(p.date) AS paid_date
+        FROM paymentables pa
+        JOIN payments p ON p.id = pa.payment_id
+        WHERE p.is_deleted = 0
+        GROUP BY pa.invoice_id
+      `).all() as Array<{ invoice_id: string; paid_date: string }>)
+        .filter(r => r.paid_date)
+        .map(r => [r.invoice_id, r.paid_date])
+    ),
   };
 }
 

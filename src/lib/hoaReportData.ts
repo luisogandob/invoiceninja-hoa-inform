@@ -93,6 +93,12 @@ export interface HoaReportData {
   cashFlowEntries: CashFlowEntry[];
 
   /**
+   * Payment behaviour grid used for the "Comportamiento Histórico de Pagos" heatmap page.
+   * Rows go newest→oldest (starting from the report's period-end month).
+   */
+  paymentHeatmap: PaymentHeatmapData;
+
+  /**
    * Net result from the very beginning of time through the end of the period.
    * Computed as: SUM of all payments ever received (up to periodEnd)
    *              minus SUM of all expenses ever paid (payment_date ≤ periodEnd).
@@ -245,6 +251,60 @@ const NO_GROUP_LABEL = 'Sin Grupo';
 /** Label used when a client has no Unidad Vivienda (custom_value2) set */
 const NO_UNIT_LABEL = 'Sin Unidad';
 
+// ---------------------------------------------------------------------------
+// Payment heatmap types
+// ---------------------------------------------------------------------------
+
+/**
+ * Payment status for a single (unit × month) cell in the historical heatmap.
+ *
+ * Priority (worst first):
+ *  pending > paid_90plus > paid_61_90 > paid_36_60 > paid_0_35 > none
+ */
+export type PaymentHeatmapStatus =
+  | 'paid_0_35'   // fully paid within ≤35 days of invoice date  — green
+  | 'paid_36_60'  // fully paid 36–60 days after invoice date    — light green
+  | 'paid_61_90'  // fully paid 61–90 days after invoice date    — yellow-green
+  | 'paid_90plus' // fully paid >90 days after invoice date      — yellow
+  | 'pending'     // has outstanding invoices from that month    — light orange
+  | 'none';       // no invoices for that unit/month             — light grey
+
+/** A numeric priority used to keep the "worst" status per cell */
+const HEATMAP_PRIORITY: Record<PaymentHeatmapStatus, number> = {
+  none: 0, paid_0_35: 1, paid_36_60: 2, paid_61_90: 3, paid_90plus: 4, pending: 5,
+};
+
+/** One row in the payment heatmap — represents a single calendar month */
+export interface PaymentHeatmapRow {
+  /** Display label, e.g. "Mar 2026" */
+  monthLabel: string;
+  /** ISO month key used as a lookup key, e.g. "2026-03" */
+  monthKey: string;
+  /** Keyed by column key "<groupName>|<unitName>", value = worst status */
+  cells: Record<string, PaymentHeatmapStatus>;
+}
+
+/** Full data structure for the historical payment heatmap page */
+export interface PaymentHeatmapData {
+  /** Ordered list of groups; each entry lists the unit labels in that group */
+  groups: Array<{ groupName: string; units: string[] }>;
+  /** All column keys in display order: "<groupName>|<unitName>" */
+  columnKeys: string[];
+  /** Monthly rows, newest first (periodEnd month → oldest available) */
+  rows: PaymentHeatmapRow[];
+}
+
+/** Maximum number of monthly rows to show on the heatmap page */
+const MAX_HEATMAP_MONTHS = 18;
+
+/**
+ * Day-boundary constants for the payment heatmap aging buckets.
+ * These match the thresholds shown in the legend and HTML CSS classes.
+ */
+const HEATMAP_DAY_TIER1 = 35;  // ≤35 d → green
+const HEATMAP_DAY_TIER2 = 60;  // ≤60 d → light green
+const HEATMAP_DAY_TIER3 = 90;  // ≤90 d → yellow-green; >90 d → yellow
+
 /**
  * Build the HoaReportData from raw Invoice Ninja data.
  *
@@ -277,6 +337,7 @@ const NO_UNIT_LABEL = 'Sin Unidad';
  * @param allTimePaymentsTotal     Sum of ALL payments received up to periodEnd (for perpetualResult)
  * @param allTimeExpensesPaidTotal Sum of ALL expenses paid (payment_date ≤ periodEnd) (for perpetualResult)
  * @param initialBalance           Opening/initial bank balance to add to perpetualResult (from INITIAL_BANK_BALANCE env)
+ * @param invoiceLastPaymentDate   invoice_id → latest payment date (YYYY-MM-DD); used for heatmap aging
  */
 export function buildHoaReportData(
   allInvoices: Invoice[],
@@ -292,7 +353,8 @@ export function buildHoaReportData(
   generatedAt: Date,
   allTimePaymentsTotal = 0,
   allTimeExpensesPaidTotal = 0,
-  initialBalance = 0
+  initialBalance = 0,
+  invoiceLastPaymentDate: Record<string, string> = {}
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -739,6 +801,109 @@ export function buildHoaReportData(
   const cashFlowEntries: CashFlowEntry[] = [...cfPayments, ...cfExpenses]
     .sort((a, b) => a.date.localeCompare(b.date));
 
+  // --- Payment heatmap (Comportamiento Histórico de Pagos) ---
+  // Build a month × unit grid showing payment status for each invoice issued.
+  //
+  // Column keying: "<groupName>|<unitName>" to handle duplicate unit names across groups.
+  // Status priority (highest wins per cell): pending > paid_90plus > … > none.
+
+  // Collect all unique (group, unit) combinations seen in allInvoices, preserving
+  // the same group/unit ordering used elsewhere in the report.
+  const hmGroupMap = new Map<string, Set<string>>(); // groupName → Set of unit labels
+  allInvoices.forEach(inv => {
+    if (!inv.date) return;
+    const grp  = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
+    const unit = resolveUnit(inv.client_id, inv.client_name || inv.client?.name);
+    if (!hmGroupMap.has(grp)) hmGroupMap.set(grp, new Set());
+    hmGroupMap.get(grp)!.add(unit);
+  });
+
+  const hmGroups: PaymentHeatmapData['groups'] = Array.from(hmGroupMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([groupName, unitSet]) => ({
+      groupName,
+      units: Array.from(unitSet).sort((a, b) => a.localeCompare(b)),
+    }));
+
+  const hmColumnKeys: string[] = hmGroups.flatMap(g =>
+    g.units.map(u => `${g.groupName}|${u}`)
+  );
+
+  // Build a map: (monthKey → columnKey) → worst status
+  const hmCellMap = new Map<string, PaymentHeatmapStatus>();
+  const hmApplyStatus = (monthKey: string, colKey: string, status: PaymentHeatmapStatus) => {
+    const key = `${monthKey}__${colKey}`;
+    const existing = hmCellMap.get(key) ?? 'none';
+    if (HEATMAP_PRIORITY[status] > HEATMAP_PRIORITY[existing]) {
+      hmCellMap.set(key, status);
+    }
+  };
+
+  allInvoices.forEach(inv => {
+    if (!inv.date) return;
+    const grp     = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
+    const unit    = resolveUnit(inv.client_id, inv.client_name || inv.client?.name);
+    const colKey  = `${grp}|${unit}`;
+    const monthKey = inv.date.slice(0, 7); // "YYYY-MM"
+
+    const balance = parseFloat(String(inv.balance ?? 0));
+    if (balance > 0.005) {
+      // Still has an outstanding balance → pending
+      hmApplyStatus(monthKey, colKey, 'pending');
+    } else {
+      // Fully paid — determine aging from invoice date to last payment date
+      const paidDateStr = inv.id ? invoiceLastPaymentDate[inv.id] : undefined;
+      if (!paidDateStr) {
+        // No payment record found in the paymentables table.
+        // This typically means the invoice was fully credited or voided in Invoice Ninja
+        // rather than paid via a normal payment. Show as green (≤35 d) to keep the
+        // grid clean — a balance=0 invoice without a payment is not a collection concern.
+        hmApplyStatus(monthKey, colKey, 'paid_0_35');
+        return;
+      }
+      try {
+        const invDate  = parseISO(inv.date);
+        const paidDate = parseISO(paidDateStr);
+        const age = Math.max(0, differenceInDays(paidDate, invDate));
+        let status: PaymentHeatmapStatus;
+        if (age <= HEATMAP_DAY_TIER1)      status = 'paid_0_35';
+        else if (age <= HEATMAP_DAY_TIER2) status = 'paid_36_60';
+        else if (age <= HEATMAP_DAY_TIER3) status = 'paid_61_90';
+        else                               status = 'paid_90plus';
+        hmApplyStatus(monthKey, colKey, status);
+      } catch {
+        // Malformed date string — treat as fast-paid rather than blocking the report.
+        hmApplyStatus(monthKey, colKey, 'paid_0_35');
+      }
+    }
+  });
+
+  // Build rows: start from the month of periodEnd, go backwards MAX_HEATMAP_MONTHS
+  const MONTH_NAMES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const hmRows: PaymentHeatmapRow[] = [];
+  const endYear  = periodEnd.getFullYear();
+  const endMonth = periodEnd.getMonth(); // 0-indexed
+
+  for (let i = 0; i < MAX_HEATMAP_MONTHS; i++) {
+    const absMonth = endYear * 12 + endMonth - i;
+    const yr = Math.floor(absMonth / 12);
+    const mo = absMonth % 12; // 0-indexed
+    const monthKey = `${yr}-${String(mo + 1).padStart(2, '0')}`;
+    const monthLabel = `${MONTH_NAMES_ES[mo]} ${yr}`;
+
+    const cells: Record<string, PaymentHeatmapStatus> = {};
+    for (const colKey of hmColumnKeys) {
+      cells[colKey] = hmCellMap.get(`${monthKey}__${colKey}`) ?? 'none';
+    }
+    hmRows.push({ monthLabel, monthKey, cells });
+  }
+
+  const paymentHeatmap: PaymentHeatmapData = {
+    groups: hmGroups,
+    columnKeys: hmColumnKeys,
+    rows: hmRows,
+  };
+
   return {
     title,
     periodStart: formatDate(periodStart),
@@ -762,6 +927,7 @@ export function buildHoaReportData(
     apAgingBuckets,
     apByVendor,
     cashFlowEntries,
+    paymentHeatmap,
     perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
     bankBalance: (allTimePaymentsTotal - allTimeExpensesPaidTotal) + initialBalance,
   };
