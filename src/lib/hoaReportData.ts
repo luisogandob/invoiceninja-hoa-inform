@@ -2,6 +2,29 @@ import { parseISO, isBefore, isAfter, isEqual, differenceInDays } from 'date-fns
 import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
+ * Company branding and contact information displayed on the cover page.
+ * All fields are optional — only populated fields will appear in the report.
+ */
+export interface CompanyInfo {
+  /** Company / HOA name */
+  name?: string;
+  /** RNC (Registro Nacional del Contribuyente) or tax ID */
+  rnc?: string;
+  /** Public website URL */
+  website?: string;
+  /** Contact e-mail address */
+  email?: string;
+  /** Physical address */
+  address?: string;
+  /**
+   * URL or local file path to the company logo.
+   * The generator will fetch/read this and embed it as a base64 data URI so
+   * the PDF renderer does not need external network access.
+   */
+  logoUrl?: string;
+}
+
+/**
  * Aggregated data needed to build the HOA income report.
  */
 export interface HoaReportData {
@@ -117,6 +140,19 @@ export interface HoaReportData {
    * Computed as: perpetualResult + initialBalance (from INITIAL_BANK_BALANCE env var).
    */
   bankBalance: number;
+
+  /**
+   * Company branding and contact info displayed on the cover page.
+   * Populated from COMPANY_* env vars in index.ts.
+   */
+  companyInfo?: CompanyInfo;
+
+  /**
+   * Raw markdown string for the "Documentación del Informe" page.
+   * Loaded from the file at REPORT_DOCS_PATH (default: ./report-docs.md).
+   * If empty or undefined the docs page is omitted.
+   */
+  docsMarkdown?: string;
 }
 
 export interface PaymentsByGroup {

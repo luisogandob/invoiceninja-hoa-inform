@@ -1,10 +1,11 @@
 import dotenv from 'dotenv';
 import { format } from 'date-fns';
-import { promises as fs } from 'fs';
+import { promises as fs, readFileSync } from 'fs';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
+import type { CompanyInfo } from './lib/hoaReportData.js';
 import { createDb, getSyncMeta, syncDb, queryForReport } from './lib/localDb.js';
 import type { SyncMode } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
@@ -12,6 +13,33 @@ import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
 
 // Load environment variables
 dotenv.config();
+
+/**
+ * Read company info from COMPANY_* environment variables.
+ */
+function readCompanyInfo(): CompanyInfo {
+  return {
+    name:    process.env.COMPANY_NAME    || undefined,
+    rnc:     process.env.COMPANY_RNC     || undefined,
+    website: process.env.COMPANY_WEBSITE || undefined,
+    email:   process.env.COMPANY_EMAIL   || undefined,
+    address: process.env.COMPANY_ADDRESS || undefined,
+    logoUrl: process.env.COMPANY_LOGO_URL || undefined,
+  };
+}
+
+/**
+ * Load the documentation markdown from REPORT_DOCS_PATH (default: ./report-docs.md).
+ * Returns an empty string if the file does not exist.
+ */
+function readDocsMarkdown(): string {
+  const docsPath = process.env.REPORT_DOCS_PATH || './report-docs.md';
+  try {
+    return readFileSync(docsPath, 'utf-8');
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Report generation options
@@ -177,6 +205,8 @@ class HOAInformAutomation {
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
           invoiceLastPaymentDate
         );
+        reportData.companyInfo  = readCompanyInfo();
+        reportData.docsMarkdown = readDocsMarkdown();
       } finally {
         db.close();
       }
@@ -307,6 +337,8 @@ class HOAInformAutomation {
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
           invoiceLastPaymentDate
         );
+        reportData.companyInfo  = readCompanyInfo();
+        reportData.docsMarkdown = readDocsMarkdown();
       } finally {
         db.close();
       }

@@ -1,7 +1,8 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import { format } from 'date-fns';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { createRequire } from 'module';
+import axios from 'axios';
 import type { HoaReportData } from './hoaReportData.js';
 
 const _require = createRequire(import.meta.url);
@@ -127,7 +128,13 @@ class HoaReportGenerator {
   }
 
   async generatePdf(data: HoaReportData): Promise<Buffer> {
-    const html = this.buildHtml(data);
+    // Fetch / load the company logo as a base64 data URI before rendering
+    let logoDataUri: string | undefined;
+    if (data.companyInfo?.logoUrl) {
+      logoDataUri = await this.fetchLogoAsDataUri(data.companyInfo.logoUrl);
+    }
+
+    const html = this.buildHtml(data, logoDataUri);
     const browser = await this.getBrowser();
 
     const page = await browser.newPage();
@@ -173,6 +180,102 @@ class HoaReportGenerator {
   // HTML builder
   // ---------------------------------------------------------------------------
 
+  /**
+   * Fetch a logo from a URL or local file path and return it as a base64 data URI
+   * so the PDF renderer can embed it without additional network requests.
+   * Returns undefined if the logo cannot be loaded (logs a warning).
+   */
+  private async fetchLogoAsDataUri(url: string): Promise<string | undefined> {
+    try {
+      // Already a data URI — pass through
+      if (url.startsWith('data:')) return url;
+
+      // Local file path
+      if (existsSync(url)) {
+        const buf = readFileSync(url);
+        const ext = url.toLowerCase().split('.').pop() ?? 'png';
+        const mimeMap: Record<string, string> = {
+          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+          gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp'
+        };
+        const mime = mimeMap[ext] ?? 'image/png';
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      }
+
+      // HTTP / HTTPS URL
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        const response = await axios.get<ArrayBuffer>(url, {
+          responseType: 'arraybuffer',
+          timeout: 8_000
+        });
+        const ct = (response.headers['content-type'] as string | undefined) ?? 'image/png';
+        const mime = ct.split(';')[0].trim();
+        const base64 = Buffer.from(response.data).toString('base64');
+        return `data:${mime};base64,${base64}`;
+      }
+    } catch (err) {
+      console.warn(
+        `[HoaReportGenerator] Could not load logo from "${url}":`,
+        (err as Error).message
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * Convert a basic subset of Markdown to HTML.
+   * Supports: h1/h2/h3, **bold**, *italic*, `code`, unordered and ordered lists,
+   * blank-line paragraph breaks, and horizontal rules (---).
+   */
+  private static parseMarkdown(md: string): string {
+    const lines = md.split('\n');
+    const html: string[] = [];
+    let inUl = false;
+    let inOl = false;
+
+    const closeUl = () => { if (inUl) { html.push('</ul>'); inUl = false; } };
+    const closeOl = () => { if (inOl) { html.push('</ol>'); inOl = false; } };
+    const closeLists = () => { closeUl(); closeOl(); };
+
+    const inline = (text: string): string =>
+      text
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>');
+
+    for (const line of lines) {
+      if (line.startsWith('### ')) {
+        closeLists();
+        html.push(`<h3>${inline(line.slice(4))}</h3>`);
+      } else if (line.startsWith('## ')) {
+        closeLists();
+        html.push(`<h2>${inline(line.slice(3))}</h2>`);
+      } else if (line.startsWith('# ')) {
+        closeLists();
+        html.push(`<h1>${inline(line.slice(2))}</h1>`);
+      } else if (/^[-*] /.test(line)) {
+        closeOl();
+        if (!inUl) { html.push('<ul>'); inUl = true; }
+        html.push(`<li>${inline(line.slice(2))}</li>`);
+      } else if (/^\d+\. /.test(line)) {
+        closeUl();
+        if (!inOl) { html.push('<ol>'); inOl = true; }
+        html.push(`<li>${inline(line.replace(/^\d+\. /, ''))}</li>`);
+      } else if (/^-{3,}$/.test(line.trim()) || /^={3,}$/.test(line.trim())) {
+        closeLists();
+        html.push('<hr>');
+      } else if (line.trim() === '') {
+        closeLists();
+        html.push('<p style="margin:0;line-height:0.6em">&nbsp;</p>');
+      } else {
+        closeLists();
+        html.push(`<p>${inline(line)}</p>`);
+      }
+    }
+    closeLists();
+    return html.join('\n');
+  }
+
   // SVG icons (stroke-based, currentColor, heroicons style)
   private static readonly ICON_INVOICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>`;
   private static readonly ICON_PAYMENT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="18"/></svg>`;
@@ -185,7 +288,7 @@ class HoaReportGenerator {
   /** Cash outflow — arrow pointing down (red) */
   private static readonly ICON_CASH_OUT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>`;
 
-  buildHtml(data: HoaReportData): string {
+  buildHtml(data: HoaReportData, logoDataUri?: string): string {
     const {
       title,
       periodStart,
@@ -212,7 +315,9 @@ class HoaReportGenerator {
       cfDailyData,
       paymentHeatmap,
       perpetualResult,
-      bankBalance
+      bankBalance,
+      companyInfo,
+      docsMarkdown
     } = data;
 
     const fmt = (n: number) =>
@@ -918,9 +1023,206 @@ class HoaReportGenerator {
     }
     .hm-legend-item { display: flex; align-items: center; gap: 4px; }
     .hm-legend-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #d1d5db; flex-shrink: 0; }
+
+    /* ── Cover page ── */
+    @page cover-pg { size: A4 portrait; margin: 0; }
+    .page-cover {
+      page: cover-pg;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      min-height: 267mm;
+      padding: 40px 48px;
+      background: #f8fafc;
+    }
+    .cover-logo {
+      margin-bottom: 36px;
+    }
+    .cover-logo img {
+      max-width: 200px;
+      max-height: 120px;
+      object-fit: contain;
+    }
+    .cover-logo-placeholder {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: #e0e7ef;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+    }
+    .cover-company-name {
+      font-size: 26px;
+      font-weight: 800;
+      color: #1e2d3d;
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+    .cover-company-detail {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .cover-divider {
+      width: 80px;
+      height: 3px;
+      background: #1e2d3d;
+      margin: 28px auto;
+      border-radius: 2px;
+    }
+    .cover-report-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e2d3d;
+      margin-bottom: 10px;
+    }
+    .cover-period {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .cover-generated {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+
+    /* ── Table of contents (Índice) ── */
+    .page-toc { page-break-before: always; padding-top: 4px; }
+    .toc-list {
+      list-style: none;
+      margin-top: 18px;
+    }
+    .toc-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 9px 0;
+      border-bottom: 1px dotted #d1d5db;
+      font-size: 13px;
+    }
+    .toc-list li:last-child { border-bottom: none; }
+    .toc-num {
+      min-width: 26px;
+      font-weight: 700;
+      color: #1e2d3d;
+    }
+    .toc-title { flex: 1; color: #1f2937; }
+    .toc-list a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .toc-list a:hover { text-decoration: underline; }
+
+    /* ── Documentation page ── */
+    .page-docs { page-break-before: always; padding-top: 4px; }
+    .docs-content { font-size: 12px; line-height: 1.7; color: #1f2937; }
+    .docs-content h1 {
+      font-size: 18px; font-weight: 700; color: #1e2d3d;
+      margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid #1e2d3d;
+    }
+    .docs-content h2 {
+      font-size: 14px; font-weight: 700; color: #1e2d3d;
+      margin: 18px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #e5e7eb;
+    }
+    .docs-content h3 {
+      font-size: 12px; font-weight: 700; color: #374151; margin: 14px 0 4px;
+    }
+    .docs-content p { margin: 0 0 6px; }
+    .docs-content ul, .docs-content ol {
+      margin: 0 0 8px; padding-left: 22px;
+    }
+    .docs-content li { margin-bottom: 3px; }
+    .docs-content strong { font-weight: 700; }
+    .docs-content em { font-style: italic; }
+    .docs-content code {
+      font-family: monospace; font-size: 11px;
+      background: #f3f4f6; padding: 1px 4px; border-radius: 3px;
+    }
+    .docs-content hr {
+      border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;
+    }
+
+    /* ── Closing page ── */
+    .page-closing {
+      page-break-before: always;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 60px 48px;
+      min-height: 160mm;
+      background: #f8fafc;
+    }
+    .closing-logo img {
+      max-width: 120px;
+      max-height: 72px;
+      object-fit: contain;
+      margin-bottom: 24px;
+      opacity: 0.7;
+    }
+    .closing-company-name {
+      font-size: 18px; font-weight: 700; color: #1e2d3d; margin-bottom: 6px;
+    }
+    .closing-detail {
+      font-size: 12px; color: #6b7280; margin-bottom: 3px;
+    }
+    .closing-divider {
+      width: 60px; height: 2px; background: #1e2d3d;
+      margin: 20px auto; border-radius: 2px;
+    }
+    .closing-thanks {
+      font-size: 14px; font-weight: 600; color: #1e2d3d; margin-bottom: 6px;
+    }
+    .closing-generated {
+      font-size: 10px; color: #9ca3af; margin-top: 8px;
+    }
   </style>
 </head>
 <body>
+
+  <!-- ══ Página 0: Portada ══ -->
+  <div class="page-cover">
+    <div class="cover-logo">
+      ${logoDataUri
+        ? `<img src="${logoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}">`
+        : `<div class="cover-logo-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#9ca3af" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`
+      }
+    </div>
+    ${companyInfo?.name ? `<div class="cover-company-name">${this.esc(companyInfo.name)}</div>` : ''}
+    ${companyInfo?.rnc     ? `<div class="cover-company-detail">RNC: ${this.esc(companyInfo.rnc)}</div>` : ''}
+    ${companyInfo?.website ? `<div class="cover-company-detail">${this.esc(companyInfo.website)}</div>` : ''}
+    ${companyInfo?.email   ? `<div class="cover-company-detail">${this.esc(companyInfo.email)}</div>` : ''}
+    ${companyInfo?.address ? `<div class="cover-company-detail">${this.esc(companyInfo.address)}</div>` : ''}
+    <div class="cover-divider"></div>
+    <div class="cover-report-title">${this.esc(title)}</div>
+    <div class="cover-period">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    <div class="cover-generated">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
+  </div>
+
+  <!-- ══ Página 1: Índice ══ -->
+  <div class="page-toc">
+    <div class="report-header">
+      <h1>Índice</h1>
+    </div>
+    <ul class="toc-list">
+      <li><span class="toc-num">1.</span><span class="toc-title"><a href="#sec-resumen">Resumen Ejecutivo</a></span></li>
+      <li><span class="toc-num">2.</span><span class="toc-title"><a href="#sec-heatmap">Comportamiento Histórico de Pagos</a></span></li>
+      <li><span class="toc-num">3.</span><span class="toc-title"><a href="#sec-gastos">Análisis de Gastos</a></span></li>
+      <li><span class="toc-num">4.</span><span class="toc-title"><a href="#sec-cxc">Análisis de Cuentas x Cobrar</a></span></li>
+      <li><span class="toc-num">5.</span><span class="toc-title"><a href="#sec-cxp">Análisis de Cuentas x Pagar</a></span></li>
+      <li><span class="toc-num">6.</span><span class="toc-title"><a href="#sec-flujo">Flujo de Efectivo</a></span></li>
+      ${docsMarkdown ? `<li><span class="toc-num">7.</span><span class="toc-title"><a href="#sec-docs">Documentación del Informe</a></span></li>` : ''}
+    </ul>
+  </div>
+
+  <!-- ══ Página 2: Resumen Ejecutivo ══ -->
+  <div id="sec-resumen" style="page-break-before: always; padding-top: 4px;">
 
   <!-- ── Header ── -->
   <div class="report-header">
@@ -961,8 +1263,10 @@ class HoaReportGenerator {
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
-  <!-- ── Página 2: Comportamiento Histórico de Pagos (landscape) ── -->
-  <div class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
+  </div><!-- /#sec-resumen -->
+
+  <!-- ══ Página 3: Comportamiento Histórico de Pagos (landscape) ══ -->
+  <div id="sec-heatmap" class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Comportamiento Histórico de Pagos</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
@@ -970,8 +1274,8 @@ class HoaReportGenerator {
     ${heatmapHtml}
   </div>
 
-  <!-- ── Página 3: Análisis de Gastos ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 4: Análisis de Gastos ══ -->
+  <div id="sec-gastos" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Gastos</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
@@ -994,8 +1298,8 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 4: Análisis de Cuentas x Cobrar ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 5: Análisis de Cuentas x Cobrar ══ -->
+  <div id="sec-cxc" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Cobrar</h1>
       <div class="meta">Al ${this.esc(periodEnd)}</div>
@@ -1020,8 +1324,8 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 5: Análisis de Cuentas x Pagar ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 6: Análisis de Cuentas x Pagar ══ -->
+  <div id="sec-cxp" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Pagar</h1>
       <div class="meta">Al ${this.esc(periodEnd)}</div>
@@ -1045,13 +1349,38 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 6: Flujo de Efectivo ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 7: Flujo de Efectivo ══ -->
+  <div id="sec-flujo" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
     </div>
     ${cashFlowHtml}
+  </div>
+
+  ${docsMarkdown ? `
+  <!-- ══ Página 8: Documentación del Informe ══ -->
+  <div id="sec-docs" class="page-docs">
+    <div class="report-header">
+      <h1>Documentación del Informe</h1>
+    </div>
+    <div class="docs-content">
+      ${HoaReportGenerator.parseMarkdown(docsMarkdown)}
+    </div>
+  </div>` : ''}
+
+  <!-- ══ Página de Cierre ══ -->
+  <div id="sec-cierre" class="page-closing">
+    ${logoDataUri ? `<div class="closing-logo"><img src="${logoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}"></div>` : ''}
+    ${companyInfo?.name ? `<div class="closing-company-name">${this.esc(companyInfo.name)}</div>` : ''}
+    ${companyInfo?.rnc     ? `<div class="closing-detail">RNC: ${this.esc(companyInfo.rnc)}</div>` : ''}
+    ${companyInfo?.website ? `<div class="closing-detail">${this.esc(companyInfo.website)}</div>` : ''}
+    ${companyInfo?.email   ? `<div class="closing-detail">${this.esc(companyInfo.email)}</div>` : ''}
+    ${companyInfo?.address ? `<div class="closing-detail">${this.esc(companyInfo.address)}</div>` : ''}
+    <div class="closing-divider"></div>
+    <div class="closing-thanks">${this.esc(title)}</div>
+    <div class="closing-detail">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    <div class="closing-generated">Generado el ${format(generatedAt, 'dd/MM/yyyy')}</div>
   </div>
 
   <!-- ── Chart.js (inlined) ── -->
