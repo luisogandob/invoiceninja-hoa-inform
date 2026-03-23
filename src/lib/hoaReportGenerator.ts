@@ -205,7 +205,8 @@ class HoaReportGenerator {
       expensesByCategory,
       expensesByVendor,
       cashFlowEntries,
-      perpetualResult
+      perpetualResult,
+      bankBalance
     } = data;
 
     const fmt = (n: number) =>
@@ -418,13 +419,16 @@ class HoaReportGenerator {
         </tr>
       </tbody>
     </table>
-    <div class="cf-result-card ${cfResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
       <div class="cf-result-card__label">Resultado del Período</div>
       <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
     </div>
-    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
-      <div class="cf-result-card__label">Resultado Perpetuo</div>
-      <div class="cf-result-card__amount">${perpetualResult >= 0 ? '+' : '−'}$${fmt(Math.abs(perpetualResult))}</div>
+    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__left">
+        <div class="cf-result-card__label">Balance en Banco</div>
+        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+      </div>
+      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
     </div>`;
 
     return `<!DOCTYPE html>
@@ -618,12 +622,24 @@ class HoaReportGenerator {
     }
     .cf-result-card--pos { background: #16a34a; }
     .cf-result-card--neg { background: #dc2626; }
+    .cf-result-card__left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
     .cf-result-card__label {
       font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.04em;
       text-transform: uppercase;
       opacity: 0.9;
+    }
+    .cf-result-card__sub {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.8;
+      text-transform: none;
+      letter-spacing: 0;
     }
     .cf-result-card__amount {
       font-size: 22px;

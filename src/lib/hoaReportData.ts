@@ -80,6 +80,12 @@ export interface HoaReportData {
    *              minus SUM of all expenses ever paid (payment_date ≤ periodEnd).
    */
   perpetualResult: number;
+
+  /**
+   * Estimated bank balance at the end of the period, pending reconciliation.
+   * Computed as: perpetualResult + initialBalance (from INITIAL_BANK_BALANCE env var).
+   */
+  bankBalance: number;
 }
 
 export interface PaymentsByGroup {
@@ -214,6 +220,7 @@ const NO_UNIT_LABEL = 'Sin Unidad';
  * @param generatedAt    Report generation timestamp
  * @param allTimePaymentsTotal     Sum of ALL payments received up to periodEnd (for perpetualResult)
  * @param allTimeExpensesPaidTotal Sum of ALL expenses paid (payment_date ≤ periodEnd) (for perpetualResult)
+ * @param initialBalance           Opening/initial bank balance to add to perpetualResult (from INITIAL_BANK_BALANCE env)
  */
 export function buildHoaReportData(
   allInvoices: Invoice[],
@@ -228,7 +235,8 @@ export function buildHoaReportData(
   title: string,
   generatedAt: Date,
   allTimePaymentsTotal = 0,
-  allTimeExpensesPaidTotal = 0
+  allTimeExpensesPaidTotal = 0,
+  initialBalance = 0
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -625,6 +633,7 @@ export function buildHoaReportData(
     expensesByVendor,
     cashFlowEntries,
     perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
+    bankBalance: (allTimePaymentsTotal - allTimeExpensesPaidTotal) + initialBalance,
   };
 }
 

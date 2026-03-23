@@ -173,7 +173,8 @@ class HOAInformAutomation {
           reportTitle,
           new Date(),
           allTimePaymentsTotal,
-          allTimeExpensesPaidTotal
+          allTimeExpensesPaidTotal,
+          parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0
         );
       } finally {
         db.close();
@@ -301,7 +302,8 @@ class HOAInformAutomation {
           reportTitle,
           new Date(),
           allTimePaymentsTotal,
-          allTimeExpensesPaidTotal
+          allTimeExpensesPaidTotal,
+          parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0
         );
       } finally {
         db.close();
