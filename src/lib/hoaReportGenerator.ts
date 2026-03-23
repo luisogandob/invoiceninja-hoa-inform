@@ -380,13 +380,16 @@ class HoaReportGenerator {
           const subLineHtml = entry.subLine
             ? `<div class="cf-subline">${this.esc(entry.subLine)}</div>`
             : '';
+          const subLine2Html = entry.subLine2
+            ? `<div class="cf-subline">${this.esc(entry.subLine2)}</div>`
+            : '';
           const numberSecondLine = entry.number
             ? `<div class="cf-num-secondary">${this.esc(entry.number)}</div>`
             : '';
           return `<tr>
             <td class="cf-icon-cell">${icon}</td>
             <td class="cf-date-cell">${this.esc(fmtDate1(entry.date))}${numberSecondLine}</td>
-            <td>${this.esc(entry.name)}${subLineHtml}</td>
+            <td>${this.esc(entry.name)}${subLineHtml}${subLine2Html}</td>
             <td class="cf-amount-cell">${amountStr}</td>
           </tr>`;
         }).join('\n          ')

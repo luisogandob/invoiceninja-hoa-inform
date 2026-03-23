@@ -153,16 +153,21 @@ export interface CashFlowEntry {
   type: 'payment' | 'expense';
   /** YYYY-MM-DD — used for chronological sorting and display */
   date: string;
-  /** Payment number (e.g. "PAY-0001") for payments, or empty string for expenses */
+  /** Payment number (e.g. "PAY-0001") for payments, or expense document number */
   number: string;
   /** Client name (payment) or vendor name (expense) */
   name: string;
   amount: number;
   /**
    * For payments: comma-separated "INV-001 $150.00, INV-002 $50.00" invoice/amount list.
-   * For expenses: public_notes of the expense (may be empty).
+   * For expenses: "Categoria • Cliente" middle line (may be empty).
    */
   subLine: string;
+  /**
+   * For expenses only: public_notes (Notas), third line in description cell.
+   * Unused for payment entries.
+   */
+  subLine2?: string;
 }
 
 /** Label used when a client has no group assigned */
@@ -570,8 +575,9 @@ export function buildHoaReportData(
     })
     .map(e => {
       const categoryPart = e.category_name || e.category?.name || '';
-      const notesPart    = e.public_notes || '';
-      const subLine = [categoryPart, notesPart].filter(Boolean).join(' • ');
+      const clientPart   = e.client_name || '';
+      const subLine  = [categoryPart, clientPart].filter(Boolean).join(' • ');
+      const subLine2 = e.public_notes || '';
       return {
         type:    'expense' as const,
         date:    e.payment_date!,
@@ -579,6 +585,7 @@ export function buildHoaReportData(
         name:    e.vendor_name || e.vendor?.name || 'Sin Suplidor',
         amount:  parseFloat(String(e.amount || 0)),
         subLine,
+        subLine2,
       };
     });
 

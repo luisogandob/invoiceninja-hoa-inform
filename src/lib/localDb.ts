@@ -60,6 +60,7 @@ const SCHEMA_SQL = `
     number       TEXT,
     vendor_id    TEXT,
     category_id  TEXT,
+    client_id    TEXT,
     amount       REAL    NOT NULL DEFAULT 0,
     date         TEXT,
     payment_date TEXT,
@@ -151,6 +152,7 @@ interface ExpenseRow {
   number: string | null;
   vendor_id: string | null;
   category_id: string | null;
+  client_id: string | null;
   amount: number;
   date: string | null;
   payment_date: string | null;
@@ -158,6 +160,7 @@ interface ExpenseRow {
   is_deleted: number;
   vendor_name: string | null;
   category_name: string | null;
+  client_name: string | null;
 }
 
 interface ClientRow {
@@ -268,6 +271,9 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
   }
   if (!expenseCols.includes('number')) {
     db.exec(`ALTER TABLE expenses ADD COLUMN number TEXT`);
+  }
+  if (!expenseCols.includes('client_id')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN client_id TEXT`);
   }
   return db;
 }
@@ -405,8 +411,8 @@ export async function syncDb(
   `);
   const deletePaymentables = db.prepare(`DELETE FROM paymentables WHERE payment_id = ?`);
   const stmtExpense = db.prepare(`
-    INSERT OR REPLACE INTO expenses(id, number, vendor_id, category_id, amount, date, payment_date, public_notes, is_deleted)
-    VALUES (@id, @number, @vendor_id, @category_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
+    INSERT OR REPLACE INTO expenses(id, number, vendor_id, category_id, client_id, amount, date, payment_date, public_notes, is_deleted)
+    VALUES (@id, @number, @vendor_id, @category_id, @client_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
   `);
   const stmtClient = db.prepare(`
     INSERT OR REPLACE INTO clients(id, name, group_settings_id, custom_value2, is_deleted)
@@ -502,6 +508,7 @@ export async function syncDb(
         number:       e.number ?? null,
         vendor_id:    e.vendor_id ?? null,
         category_id:  e.category_id ?? null,
+        client_id:    e.client_id ?? null,
         amount:       Number(e.amount) || 0,
         date:         resolveDate(e, 'expense_date'),
         payment_date: e.payment_date ?? null,
@@ -628,6 +635,7 @@ function rowToExpense(row: ExpenseRow): Expense {
     number:        row.number        ?? undefined,
     vendor_id:     row.vendor_id     ?? undefined,
     category_id:   row.category_id   ?? undefined,
+    client_id:     row.client_id     ?? undefined,
     amount:        row.amount,
     date:          row.date           ?? undefined,
     payment_date:  row.payment_date   ?? undefined,
@@ -635,6 +643,7 @@ function rowToExpense(row: ExpenseRow): Expense {
     is_deleted:    row.is_deleted     === 1,
     vendor_name:   row.vendor_name    ?? undefined,
     category_name: row.category_name  ?? undefined,
+    client_name:   row.client_name    ?? undefined,
   };
 }
 
@@ -720,19 +729,21 @@ export function queryForReport(
 
   // All expenses (not deleted) — used for AP outstanding balance
   const allExpenses = (db.prepare(`
-    SELECT e.*, v.name AS vendor_name, c.name AS category_name
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name, cli.name AS client_name
     FROM expenses e
     LEFT JOIN vendors v ON v.id = e.vendor_id
     LEFT JOIN expense_categories c ON c.id = e.category_id
+    LEFT JOIN clients cli ON cli.id = e.client_id
     WHERE e.is_deleted = 0
   `).all() as ExpenseRow[]).map(rowToExpense);
 
   // Expenses within the period (gastos del período)
   const periodExpenses = (db.prepare(`
-    SELECT e.*, v.name AS vendor_name, c.name AS category_name
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name, cli.name AS client_name
     FROM expenses e
     LEFT JOIN vendors v ON v.id = e.vendor_id
     LEFT JOIN expense_categories c ON c.id = e.category_id
+    LEFT JOIN clients cli ON cli.id = e.client_id
     WHERE e.date >= ? AND e.date <= ? AND e.is_deleted = 0
   `).all(startISO, endISO) as ExpenseRow[]).map(rowToExpense);
 
