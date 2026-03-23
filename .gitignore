@@ -140,3 +140,6 @@ vite.config.ts.timestamp-*
 
 # Generated PDF reports
 *.pdf
+*.db
+*.db-shm
+*.db-wal
