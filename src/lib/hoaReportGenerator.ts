@@ -204,7 +204,8 @@ class HoaReportGenerator {
       arByGroupUnit,
       expensesByCategory,
       expensesByVendor,
-      cashFlowEntries
+      cashFlowEntries,
+      perpetualResult
     } = data;
 
     const fmt = (n: number) =>
@@ -420,6 +421,10 @@ class HoaReportGenerator {
     <div class="cf-result-card ${cfResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
       <div class="cf-result-card__label">Resultado del Período</div>
       <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
+    </div>
+    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__label">Resultado Perpetuo</div>
+      <div class="cf-result-card__amount">${perpetualResult >= 0 ? '+' : '−'}$${fmt(Math.abs(perpetualResult))}</div>
     </div>`;
 
     return `<!DOCTYPE html>

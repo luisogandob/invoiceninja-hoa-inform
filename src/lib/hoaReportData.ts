@@ -73,6 +73,13 @@ export interface HoaReportData {
    * Used to render the Flujo de Efectivo page.
    */
   cashFlowEntries: CashFlowEntry[];
+
+  /**
+   * Net result from the very beginning of time through the end of the period.
+   * Computed as: SUM of all payments ever received (up to periodEnd)
+   *              minus SUM of all expenses ever paid (payment_date ≤ periodEnd).
+   */
+  perpetualResult: number;
 }
 
 export interface PaymentsByGroup {
@@ -205,6 +212,8 @@ const NO_UNIT_LABEL = 'Sin Unidad';
  * @param periodEnd      End date of the report period
  * @param title          Report title
  * @param generatedAt    Report generation timestamp
+ * @param allTimePaymentsTotal     Sum of ALL payments received up to periodEnd (for perpetualResult)
+ * @param allTimeExpensesPaidTotal Sum of ALL expenses paid (payment_date ≤ periodEnd) (for perpetualResult)
  */
 export function buildHoaReportData(
   allInvoices: Invoice[],
@@ -217,7 +226,9 @@ export function buildHoaReportData(
   periodStart: Date,
   periodEnd: Date,
   title: string,
-  generatedAt: Date
+  generatedAt: Date,
+  allTimePaymentsTotal = 0,
+  allTimeExpensesPaidTotal = 0
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -612,7 +623,8 @@ export function buildHoaReportData(
     arByGroupUnit,
     expensesByCategory,
     expensesByVendor,
-    cashFlowEntries
+    cashFlowEntries,
+    perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
   };
 }
 

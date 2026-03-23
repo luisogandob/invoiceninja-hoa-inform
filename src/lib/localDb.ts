@@ -221,6 +221,16 @@ export interface DbQueryResult {
   allClients:     Client[];
   /** Every client group. */
   clientGroups:   ClientGroup[];
+  /**
+   * Sum of ALL non-deleted payment amounts with date ≤ periodEnd.
+   * Used to compute the perpetual (all-time) cash-flow result.
+   */
+  allTimePaymentsTotal: number;
+  /**
+   * Sum of ALL non-deleted expense amounts whose payment_date ≤ periodEnd.
+   * Used to compute the perpetual (all-time) cash-flow result.
+   */
+  allTimeExpensesPaidTotal: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -765,6 +775,14 @@ export function queryForReport(
     allExpenses,
     allClients,
     clientGroups,
+    allTimePaymentsTotal:     (db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total FROM payments
+      WHERE date <= ? AND is_deleted = 0
+    `).get(endISO) as { total: number }).total,
+    allTimeExpensesPaidTotal: (db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
+      WHERE payment_date IS NOT NULL AND payment_date <= ? AND is_deleted = 0
+    `).get(endISO) as { total: number }).total,
   };
 }
 
