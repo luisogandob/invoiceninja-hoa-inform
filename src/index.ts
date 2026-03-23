@@ -1,12 +1,13 @@
 import dotenv from 'dotenv';
 import { format } from 'date-fns';
 import { promises as fs, readFileSync } from 'fs';
+import { resolve as resolvePath } from 'path';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
 import type { CompanyInfo } from './lib/hoaReportData.js';
-import { createDb, getSyncMeta, syncDb, queryForReport } from './lib/localDb.js';
+import { createDb, getSyncMeta, syncDb, queryForReport, getCompanyProfileFromDb } from './lib/localDb.js';
 import type { SyncMode } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
 import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
@@ -15,16 +16,37 @@ import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
 dotenv.config();
 
 /**
- * Read company info from COMPANY_* environment variables.
+ * Build the CompanyInfo object for the report cover page.
+ *
+ * Data source priority (highest → lowest):
+ *  1. `COMPANY_*` environment variables (explicit overrides by the operator)
+ *  2. Cached Invoice Ninja company profile fetched during the last `sync`
+ *
+ * This means the user never has to set the `COMPANY_*` env vars unless they
+ * want to override a specific field that comes from Invoice Ninja.
+ *
+ * @param db  Open SQLite database to read the cached company profile from.
  */
-function readCompanyInfo(): CompanyInfo {
+function buildCompanyInfo(db: ReturnType<typeof createDb>): CompanyInfo {
+  // Load the cached IN company profile (may be null if sync hasn't run yet)
+  const cached = getCompanyProfileFromDb(db);
+  const s = cached?.settings;
+
+  // Build a single address string from the available address parts
+  const cachedAddress = [
+    s?.address1,
+    s?.address2,
+    [s?.city, s?.state, s?.postal_code].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ') || undefined;
+
+  // Env-var values override the cached API data field-by-field
   return {
-    name:    process.env.COMPANY_NAME    || undefined,
-    rnc:     process.env.COMPANY_RNC     || undefined,
-    website: process.env.COMPANY_WEBSITE || undefined,
-    email:   process.env.COMPANY_EMAIL   || undefined,
-    address: process.env.COMPANY_ADDRESS || undefined,
-    logoUrl: process.env.COMPANY_LOGO_URL || undefined,
+    name:    process.env.COMPANY_NAME    || s?.name          || undefined,
+    rnc:     process.env.COMPANY_RNC     || s?.id_number     || undefined,
+    website: process.env.COMPANY_WEBSITE || s?.website       || undefined,
+    email:   process.env.COMPANY_EMAIL   || s?.email         || undefined,
+    address: process.env.COMPANY_ADDRESS || cachedAddress,
+    logoUrl: process.env.COMPANY_LOGO_URL || cached?.logo    || undefined,
   };
 }
 
@@ -39,8 +61,15 @@ function readDocsMarkdown(): string {
     console.warn(`[readDocsMarkdown] REPORT_DOCS_PATH must end with ".md". Ignoring: "${docsPath}"`);
     return '';
   }
+  // Guard against path-traversal: the resolved path must stay within cwd.
+  const cwd = resolvePath('.');
+  const resolved = resolvePath(docsPath);
+  if (!resolved.startsWith(cwd + '/') && resolved !== cwd) {
+    console.warn(`[readDocsMarkdown] REPORT_DOCS_PATH outside working directory. Ignoring: "${docsPath}"`);
+    return '';
+  }
   try {
-    return readFileSync(docsPath, 'utf-8');
+    return readFileSync(resolved, 'utf-8');
   } catch {
     return '';
   }
@@ -210,7 +239,7 @@ class HOAInformAutomation {
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
           invoiceLastPaymentDate
         );
-        reportData.companyInfo  = readCompanyInfo();
+        reportData.companyInfo  = buildCompanyInfo(db);
         reportData.docsMarkdown = readDocsMarkdown();
       } finally {
         db.close();
@@ -342,7 +371,7 @@ class HOAInformAutomation {
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
           invoiceLastPaymentDate
         );
-        reportData.companyInfo  = readCompanyInfo();
+        reportData.companyInfo  = buildCompanyInfo(db);
         reportData.docsMarkdown = readDocsMarkdown();
       } finally {
         db.close();

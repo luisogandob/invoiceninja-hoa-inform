@@ -236,6 +236,47 @@ export interface PaymentFilters {
 }
 
 /**
+ * Company settings as returned by the Invoice Ninja `/api/v1/companies` endpoint.
+ * Only the fields relevant to the HOA report cover page are declared here.
+ */
+export interface InvoiceNinjaCompanySettings {
+  /** Display name of the company */
+  name?: string;
+  /** Tax ID / RNC (Registro Nacional del Contribuyente) */
+  id_number?: string;
+  /** Company website URL */
+  website?: string;
+  /** Contact e-mail address */
+  email?: string;
+  /** Address line 1 */
+  address1?: string;
+  /** Address line 2 */
+  address2?: string;
+  /** City */
+  city?: string;
+  /** State / Province */
+  state?: string;
+  /** Postal code */
+  postal_code?: string;
+  /** Phone number */
+  phone?: string;
+}
+
+/**
+ * Invoice Ninja company object (subset of fields relevant to the HOA report).
+ */
+export interface InvoiceNinjaCompany {
+  id: string;
+  /** Company settings — contains display name, address, contact info, etc. */
+  settings?: InvoiceNinjaCompanySettings;
+  /**
+   * URL of the company logo.
+   * May be an absolute URL or a path relative to the IN server base URL.
+   */
+  logo?: string;
+}
+
+/**
  * Invoice Ninja API Client
  * Handles communication with self-hosted Invoice Ninja instance
  */
@@ -475,6 +516,39 @@ class InvoiceNinjaClient {
     } catch (error) {
       console.error(`Error fetching payment ${paymentId}:`, (error as Error).message);
       throw error;
+    }
+  }
+
+  /**
+   * Fetch the company profile (name, address, contact info, logo) from Invoice Ninja.
+   *
+   * Invoice Ninja v5 scopes API tokens to a single company, so the `/companies`
+   * endpoint returns the company that owns this token.  The response shape can
+   * be either a single object or an array depending on the IN version; both
+   * cases are handled defensively.
+   *
+   * Returns `null` when the request fails or no company data is available.
+   */
+  async getCompanyProfile(): Promise<InvoiceNinjaCompany | null> {
+    try {
+      // IN v5 returns `{ data: CompanyObject }` (single) or `{ data: CompanyObject[] }` (array).
+      const response = await this.client.get<{ data: InvoiceNinjaCompany | InvoiceNinjaCompany[] }>('/companies');
+      const raw = response.data?.data;
+      if (!raw) return null;
+      const company: InvoiceNinjaCompany = Array.isArray(raw) ? raw[0] : raw;
+      if (!company?.id) return null;
+
+      // If the logo URL is relative and non-empty, resolve it against the IN server base URL.
+      if (company.logo && company.logo.length > 0 &&
+          !company.logo.startsWith('http') && !company.logo.startsWith('data:')) {
+        const base = this.baseURL.replace(/\/+$/, '');
+        company.logo = `${base}${company.logo.startsWith('/') ? '' : '/'}${company.logo}`;
+      }
+
+      return company;
+    } catch (error) {
+      console.warn('[InvoiceNinjaClient] Could not fetch company profile:', (error as Error).message);
+      return null;
     }
   }
 }

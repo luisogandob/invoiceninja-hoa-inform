@@ -211,7 +211,7 @@ class HoaReportGenerator {
           png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
           gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp'
         };
-        const mime = mimeMap[ext]!;
+        const mime = mimeMap[ext] ?? 'image/png';
         return `data:${mime};base64,${buf.toString('base64')}`;
       }
 
