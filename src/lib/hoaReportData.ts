@@ -56,6 +56,12 @@ export interface HoaReportData {
   arByGroupUnit: ArByGroupUnit[];
 
   /**
+   * Accounts receivable at end of period, one entry per client with a positive balance.
+   * Sorted by balance descending. Used for the Análisis de CxC per-client breakdown table.
+   */
+  arByClient: ArByClient[];
+
+  /**
    * Period expenses grouped by category, sorted by amount descending.
    * Used to render the doughnut chart on the Análisis de Gastos page.
    */
@@ -144,6 +150,20 @@ export interface ArByGroupUnit {
   balance: number;
   /** Outstanding balance per Unidad Vivienda: unitName → balance */
   byUnit: Record<string, number>;
+}
+
+/**
+ * Accounts receivable for a single client at the end of the period.
+ * Used to render the per-client AR breakdown table on the Análisis de CxC page.
+ */
+export interface ArByClient {
+  clientName: string;
+  /** Client group name (for the Grupo column) */
+  groupName: string;
+  /** Number of open invoices with a positive balance at period end */
+  invoiceCount: number;
+  /** Total outstanding balance for this client at period end */
+  balance: number;
 }
 
 /** Expense total for a single category within the period */
@@ -504,6 +524,31 @@ export function buildHoaReportData(
     }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
+  // --- AR by client (for per-client breakdown table) ---
+  // Group invoicesIssuedByPeriodEnd by client, counting open invoices and summing balances.
+  // Key: client_id when available, falling back to client_name string.
+  interface ClientARAccum { clientName: string; groupName: string; invoiceCount: number; balance: number; }
+  const arClientMap: Map<string, ClientARAccum> = new Map();
+
+  invoicesIssuedByPeriodEnd.forEach(inv => {
+    const balance = parseFloat(String(inv.balance || 0));
+    if (balance <= 0) return;
+    const key = inv.client_id ?? (inv.client_name || inv.client?.name || 'Desconocido');
+    if (!arClientMap.has(key)) {
+      // Resolve display name: prefer the clients table, fall back to invoice fields
+      const clientRecord = inv.client_id ? clientById.get(inv.client_id) : undefined;
+      const displayName = clientRecord?.name ?? inv.client_name ?? inv.client?.name ?? key;
+      const groupName   = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
+      arClientMap.set(key, { clientName: displayName, groupName, invoiceCount: 0, balance: 0 });
+    }
+    const entry = arClientMap.get(key)!;
+    entry.invoiceCount += 1;
+    entry.balance      += balance;
+  });
+
+  const arByClient: ArByClient[] = Array.from(arClientMap.values())
+    .sort((a, b) => b.balance - a.balance);
+
   // --- Accounts payable ---
   //   1. It was created on or before the boundary (expense.date ≤ boundary), AND
   //   2. It has no payment_date (never paid), OR its payment_date is after the boundary.
@@ -629,6 +674,7 @@ export function buildHoaReportData(
     arByGroup,
     arByUnit,
     arByGroupUnit,
+    arByClient,
     expensesByCategory,
     expensesByVendor,
     cashFlowEntries,

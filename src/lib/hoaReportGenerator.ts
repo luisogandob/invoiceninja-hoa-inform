@@ -202,6 +202,7 @@ class HoaReportGenerator {
       arByGroup,
       arByUnit,
       arByGroupUnit,
+      arByClient,
       expensesByCategory,
       expensesByVendor,
       cashFlowEntries,
@@ -303,6 +304,68 @@ class HoaReportGenerator {
     const expCatLabels  = JSON.stringify(expensesByCategory.map(e => e.categoryName));
     const expCatAmounts = JSON.stringify(expensesByCategory.map(e => e.amount));
     const expCatColors  = JSON.stringify(expensesByCategory.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
+
+    // ── Doughnut chart data for Análisis de CxC page (AR by group) ──────────
+    const arGroupDoughnutLabels  = JSON.stringify(arByGroup.map(g => g.groupName));
+    const arGroupDoughnutAmounts = JSON.stringify(arByGroup.map(g => g.balance));
+    const arGroupDoughnutColors  = JSON.stringify(arByGroup.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
+
+    // ── AR by-group table HTML (Análisis de CxC — left column) ──────────────
+    const arGroupTotal = arByGroup.reduce((s, g) => s + g.balance, 0);
+    const arGroupTableHtml = arByGroup.length > 0
+      ? `<table class="vendor-table" style="margin-top:16px">
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arByGroup.map(g =>
+              `<tr><td>${this.esc(g.groupName)}</td><td class="amount-col">$${fmt(g.balance)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(arGroupTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AR by-client table HTML (Análisis de CxC — right column) ────────────
+    const arClientTotal   = arByClient.reduce((s, c) => s + c.balance, 0);
+    const arClientTotalInvoices = arByClient.reduce((s, c) => s + c.invoiceCount, 0);
+    const arClientTableHtml = arByClient.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Grupo</th>
+              <th class="amount-col"># Facturas</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arByClient.map(c =>
+              `<tr>
+                <td>${this.esc(c.clientName)}</td>
+                <td>${this.esc(c.groupName)}</td>
+                <td class="amount-col">${c.invoiceCount}</td>
+                <td class="amount-col">$${fmt(c.balance)}</td>
+              </tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label" colspan="2">Total</td>
+              <td class="amount-col">${arClientTotalInvoices}</td>
+              <td class="amount-col">$${fmt(arClientTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
 
     // ── Category table HTML (built server-side) ──────────────────────────────
     const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
@@ -713,7 +776,31 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 3: Flujo de Efectivo ── -->
+  <!-- ── Página 3: Análisis de Cuentas x Cobrar ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Cuentas x Cobrar</h1>
+      <div class="meta">Al ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: donut chart by group + group summary table -->
+      <div>
+        <div class="section-title">CxC por Grupo de Cliente</div>
+        ${arByGroup.length > 0
+          ? '<canvas id="chart-ar-donut" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>'}
+        ${arGroupTableHtml}
+      </div>
+      <!-- Right column: per-client breakdown table -->
+      <div>
+        <div class="section-title">Desglose por Cliente</div>
+        ${arClientTableHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Página 4: Flujo de Efectivo ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>
@@ -846,6 +933,9 @@ class HoaReportGenerator {
     }
 
     buildExpenseCatDoughnut('chart-expense-cat', ${expCatLabels}, ${expCatAmounts}, ${expCatColors});
+
+    /* ── AR by-group doughnut (Análisis de CxC page) ── */
+    buildExpenseCatDoughnut('chart-ar-donut', ${arGroupDoughnutLabels}, ${arGroupDoughnutAmounts}, ${arGroupDoughnutColors});
 
     window.chartsReady = true;
   }());
