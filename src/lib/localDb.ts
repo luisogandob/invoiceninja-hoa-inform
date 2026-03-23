@@ -146,6 +146,8 @@ interface ExpenseRow {
   date: string | null;
   payment_date: string | null;
   is_deleted: number;
+  vendor_name: string | null;
+  category_name: string | null;
 }
 
 interface ClientRow {
@@ -582,13 +584,15 @@ function rowToInvoice(row: InvoiceRow): Invoice {
 
 function rowToExpense(row: ExpenseRow): Expense {
   return {
-    id:           row.id,
-    vendor_id:    row.vendor_id   ?? undefined,
-    category_id:  row.category_id ?? undefined,
-    amount:       row.amount,
-    date:         row.date         ?? undefined,
-    payment_date: row.payment_date ?? undefined,
-    is_deleted:   row.is_deleted === 1,
+    id:            row.id,
+    vendor_id:     row.vendor_id     ?? undefined,
+    category_id:   row.category_id   ?? undefined,
+    amount:        row.amount,
+    date:          row.date           ?? undefined,
+    payment_date:  row.payment_date   ?? undefined,
+    is_deleted:    row.is_deleted     === 1,
+    vendor_name:   row.vendor_name    ?? undefined,
+    category_name: row.category_name  ?? undefined,
   };
 }
 
@@ -672,13 +676,20 @@ export function queryForReport(
 
   // All expenses (not deleted) — used for AP outstanding balance
   const allExpenses = (db.prepare(`
-    SELECT * FROM expenses WHERE is_deleted = 0
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name
+    FROM expenses e
+    LEFT JOIN vendors v ON v.id = e.vendor_id
+    LEFT JOIN expense_categories c ON c.id = e.category_id
+    WHERE e.is_deleted = 0
   `).all() as ExpenseRow[]).map(rowToExpense);
 
   // Expenses within the period (gastos del período)
   const periodExpenses = (db.prepare(`
-    SELECT * FROM expenses
-    WHERE date >= ? AND date <= ? AND is_deleted = 0
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name
+    FROM expenses e
+    LEFT JOIN vendors v ON v.id = e.vendor_id
+    LEFT JOIN expense_categories c ON c.id = e.category_id
+    WHERE e.date >= ? AND e.date <= ? AND e.is_deleted = 0
   `).all(startISO, endISO) as ExpenseRow[]).map(rowToExpense);
 
   // Clients (not deleted)

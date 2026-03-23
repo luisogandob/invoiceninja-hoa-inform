@@ -54,6 +54,18 @@ export interface HoaReportData {
    * Used to render the stacked-by-unit AR bar chart (one column per group, stacked by unit).
    */
   arByGroupUnit: ArByGroupUnit[];
+
+  /**
+   * Period expenses grouped by category, sorted by amount descending.
+   * Used to render the doughnut chart on the Análisis de Gastos page.
+   */
+  expensesByCategory: ExpenseByCategory[];
+
+  /**
+   * Period expenses grouped by vendor, sorted by amount descending.
+   * Used to render the vendor table on the Análisis de Gastos page.
+   */
+  expensesByVendor: ExpenseByVendor[];
 }
 
 export interface PaymentsByGroup {
@@ -112,6 +124,18 @@ export interface ArByGroupUnit {
   balance: number;
   /** Outstanding balance per Unidad Vivienda: unitName → balance */
   byUnit: Record<string, number>;
+}
+
+/** Expense total for a single category within the period */
+export interface ExpenseByCategory {
+  categoryName: string;
+  amount: number;
+}
+
+/** Expense total for a single vendor within the period */
+export interface ExpenseByVendor {
+  vendorName: string;
+  amount: number;
 }
 
 /** Label used when a client has no group assigned */
@@ -430,7 +454,6 @@ export function buildHoaReportData(
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   // --- Accounts payable ---
-  // An expense contributes to CxP at a given boundary date if:
   //   1. It was created on or before the boundary (expense.date ≤ boundary), AND
   //   2. It has no payment_date (never paid), OR its payment_date is after the boundary.
   // This mirrors the Invoice Ninja "Expenses" outstanding view at a point in time.
@@ -454,6 +477,28 @@ export function buildHoaReportData(
     .filter(e => isExpenseUnpaidAt(e, periodStart))
     .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
 
+  // --- Expenses by category (for doughnut chart) ---
+  // Group period expenses by their category name, then sort by amount descending.
+  const expenseCategoryMap: Record<string, number> = {};
+  periodExpenses.forEach(e => {
+    const name = e.category_name ?? e.category?.name ?? 'Sin Categoría';
+    expenseCategoryMap[name] = (expenseCategoryMap[name] ?? 0) + parseFloat(String(e.amount || 0));
+  });
+  const expensesByCategory: ExpenseByCategory[] = Object.entries(expenseCategoryMap)
+    .map(([categoryName, amount]) => ({ categoryName, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
+  // --- Expenses by vendor (for summary table) ---
+  // Group period expenses by their vendor name, then sort by amount descending.
+  const expenseVendorMap: Record<string, number> = {};
+  periodExpenses.forEach(e => {
+    const name = e.vendor_name ?? e.vendor?.name ?? 'Sin Suplidor';
+    expenseVendorMap[name] = (expenseVendorMap[name] ?? 0) + parseFloat(String(e.amount || 0));
+  });
+  const expensesByVendor: ExpenseByVendor[] = Object.entries(expenseVendorMap)
+    .map(([vendorName, amount]) => ({ vendorName, amount }))
+    .sort((a, b) => b.amount - a.amount);
+
   return {
     title,
     periodStart: formatDate(periodStart),
@@ -470,7 +515,9 @@ export function buildHoaReportData(
     paymentsByGroup,
     arByGroup,
     arByUnit,
-    arByGroupUnit
+    arByGroupUnit,
+    expensesByCategory,
+    expensesByVendor
   };
 }
 

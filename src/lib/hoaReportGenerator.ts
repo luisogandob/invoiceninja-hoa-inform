@@ -197,7 +197,9 @@ class HoaReportGenerator {
       paymentsByGroup,
       arByGroup,
       arByUnit,
-      arByGroupUnit
+      arByGroupUnit,
+      expensesByCategory,
+      expensesByVendor
     } = data;
 
     const fmt = (n: number) =>
@@ -279,13 +281,45 @@ class HoaReportGenerator {
         `"group.SchemeName" format (e.g. "brewer.Paired12"). Using fallback palette.`
       );
     }
-    // (palette resolved but not embedded in browser — charts use fixed semantic colors)
     const colorData = getColorData();
     if (!colorData[schemeGroup]?.[schemeKey]) {
       console.warn(
         `[HoaReportGenerator] CHART_COLOR_SCHEME "${this.colorScheme}" not found in colorschemes data.`
       );
     }
+
+    // ── Doughnut chart data for Análisis de Gastos page ─────────────────────
+    // Palette is extracted server-side from the configured color scheme (or fallback)
+    const doughnutPalette: string[] = colorData[schemeGroup]?.[schemeKey] ??
+      ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#06b6d4','#f97316','#ec4899','#8b5cf6','#14b8a6','#f43f5e','#84cc16'];
+
+    const expCatLabels  = JSON.stringify(expensesByCategory.map(e => e.categoryName));
+    const expCatAmounts = JSON.stringify(expensesByCategory.map(e => e.amount));
+    const expCatColors  = JSON.stringify(expensesByCategory.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
+
+    // ── Vendor table HTML (built server-side) ────────────────────────────────
+    const vendorTotal = expensesByVendor.reduce((s, v) => s + v.amount, 0);
+    const vendorTableHtml = expensesByVendor.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Suplidor</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expensesByVendor.map(v =>
+              `<tr><td>${this.esc(v.vendorName)}</td><td class="amount-col">$${fmt(v.amount)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(vendorTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : `<p class="no-data">Sin gastos en el período.</p>`;
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -387,6 +421,43 @@ class HoaReportGenerator {
 
     /* ── No data ── */
     .no-data { color: #9ca3af; font-size: 13px; text-align: center; padding: 24px 0; }
+
+    /* ── Análisis de Gastos page ── */
+    .expense-analysis-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    .expense-analysis-cols canvas { display: block; margin: 0 auto; }
+
+    /* Vendor summary table */
+    .vendor-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .vendor-table th,
+    .vendor-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    .vendor-table th {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7280;
+      background: #f9fafb;
+    }
+    .vendor-table tfoot td {
+      font-weight: 700;
+      border-top: 2px solid #1e2d3d;
+      border-bottom: none;
+    }
+    .amount-col { text-align: right; }
+    .total-label { font-size: 12px; }
   </style>
 </head>
 <body>
@@ -428,6 +499,29 @@ class HoaReportGenerator {
     ${arByUnit.length > 0
       ? '<canvas id="chart-ar" width="680" height="320"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
+  </div>
+
+  <!-- ── Página 2: Análisis de Gastos ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Gastos</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: doughnut chart of expense categories -->
+      <div>
+        <div class="section-title">Categoría de Gastos en el Período</div>
+        ${expensesByCategory.length > 0
+          ? '<canvas id="chart-expense-cat" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin gastos en el período.</p>'}
+      </div>
+      <!-- Right column: vendor expense table -->
+      <div>
+        <div class="section-title">Gastos por Suplidor</div>
+        ${vendorTableHtml}
+      </div>
+    </div>
   </div>
 
   <!-- ── Chart.js (inlined) ── -->
@@ -514,6 +608,46 @@ class HoaReportGenerator {
 
     buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
     buildArChart('chart-ar', ${arGroupLabels}, ${arUnitDatasets});
+
+    /* ── Expense category doughnut ── */
+    function buildExpenseCatDoughnut(canvasId, labels, amounts, colors) {
+      var el = document.getElementById(canvasId);
+      if (!el) return;
+      new Chart(el, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: amounts,
+            backgroundColor: colors,
+            borderColor: '#fff',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: false,
+          animation:  false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: { font: { size: 10 }, padding: 10, boxWidth: 12 }
+            },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  return item.label + ': $' + item.parsed.toLocaleString('en-US', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                  });
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    buildExpenseCatDoughnut('chart-expense-cat', ${expCatLabels}, ${expCatAmounts}, ${expCatColors});
 
     window.chartsReady = true;
   }());
