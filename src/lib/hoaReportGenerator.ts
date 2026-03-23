@@ -355,6 +355,20 @@ class HoaReportGenerator {
     const fmt = (n: number) =>
       n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // ── Summary metrics for Resumen Ejecutivo first row ──────────────────────
+    /** Net result for the current period (payments received − expenses paid in period) */
+    const periodResult = totalPaymentsInPeriod - totalExpensesPaidInPeriod;
+    /** Collection rate: payments / invoiced × 100, or null when no invoices were issued */
+    const cobranzaPct = totalInvoicedInPeriod > 0
+      ? (totalPaymentsInPeriod / totalInvoicedInPeriod * 100).toFixed(1)
+      : null;
+    /** Outstanding AR that is older than 60 days (aged61_90 + aged90plus across all groups) */
+    const arMorosidad = arByGroup.reduce((s, g) => s + g.aged61_90 + g.aged90plus, 0);
+    /** Formatted morosidad string "$$X (Y%)" or null when arAtPeriodEnd is 0 */
+    const arMorosidadStr = arAtPeriodEnd > 0
+      ? `$${fmt(arMorosidad)} (${(arMorosidad / arAtPeriodEnd * 100).toFixed(1)}%)`
+      : null;
+
     // ── Stacked chart data (serialised server-side for safe embedding) ──────
     const paymentsLabels  = JSON.stringify(paymentsByGroup.map(p => p.groupName));
     const payments0_35    = JSON.stringify(paymentsByGroup.map(p => p.aged0_35));
@@ -406,7 +420,8 @@ class HoaReportGenerator {
       valueEnd: number,
       valueStart: number,
       colorCls: string,
-      available: boolean
+      available: boolean,
+      subHtml?: string
     ): string => {
       const lbl   = lines.map(l => this.esc(l)).join('<br>');
       const delta = valueEnd - valueStart;
@@ -424,6 +439,7 @@ class HoaReportGenerator {
         <div class="kpi-label">${lbl}</div>
         ${valueHtml}
         ${trendHtml}
+        ${subHtml ?? ''}
       </div>`;
     };
 
@@ -776,22 +792,22 @@ class HoaReportGenerator {
           <td colspan="3" class="cf-total-label">Total de Pagos Realizados</td>
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
+        <tr class="cf-totals-row cf-result-total-row">
+          <td colspan="3" class="cf-total-label">Resultado del Período</td>
+          <td class="cf-amount-cell ${cfResult >= 0 ? 'cf-total-in' : 'cf-total-out'}">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
+        </tr>
       </tbody>
     </table>
-    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
-      <div class="cf-result-card__label">Resultado del Período</div>
-      <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
-    </div>
     <div class="chart-section" style="margin-top: 28px;">
       <div class="section-title">Balance Diario en Banco según Registros</div>
       <canvas id="chart-cf-daily" width="680" height="250"></canvas>
     </div>
-    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
-      <div class="cf-result-card__left">
-        <div class="cf-result-card__label">Balance en Banco</div>
-        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+    <div class="cf-bank-balance-row">
+      <div>
+        <div class="cf-bank-balance-label">Balance en Banco</div>
+        <div class="cf-bank-balance-sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
       </div>
-      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
+      <div class="cf-bank-balance-amount ${bankBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
     </div>`;
 
     return `<!DOCTYPE html>
@@ -877,6 +893,44 @@ class HoaReportGenerator {
       color: #6b7280;
     }
     .kpi-sub svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+    /* ── Period-result cards (kpi-row0) side-by-side in Resumen Ejecutivo ── */
+    .kpi-row0 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    /* Resultado del Período total row inside CF table */
+    .cf-result-total-row td {
+      font-size: 13px;
+      border-top: 2px solid #374151 !important;
+    }
+    /* Bank balance row below the CF daily chart */
+    .cf-bank-balance-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding: 10px 16px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+    }
+    .cf-bank-balance-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+    .cf-bank-balance-sub {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+    .cf-bank-balance-amount {
+      font-size: 18px;
+      font-weight: 800;
+    }
 
     /* ── Section titles ── */
     .section-title {
@@ -1263,17 +1317,34 @@ class HoaReportGenerator {
     <div class="meta">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
   </div>
 
+  <!-- ── Row 0: Resultado del Período + Balance en Banco ── -->
+  <div class="kpi-row0">
+    <div class="cf-result-card ${periodResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__label">Resultado del Período</div>
+      <div class="cf-result-card__amount">${periodResult >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(periodResult)))}</div>
+    </div>
+    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__left">
+        <div class="cf-result-card__label">Balance en Banco</div>
+        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+      </div>
+      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(bankBalance)))}</div>
+    </div>
+  </div>
+
   <!-- ── Row 1: Operational KPIs ── -->
   <div class="kpi-row1">
     ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
-    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green')}
+    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
+      cobranzaPct !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} % Cobranza: ${this.esc(cobranzaPct)}%</div>` : undefined)}
     ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
       `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} $${fmt(totalExpensesPaidInPeriod)} pagado en el período.</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
   <div class="kpi-row2">
-    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd,   arAtPeriodStart, 'kpi-sky',    true)}
+    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
+      arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +60d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
     ${/* apAtPeriodEnd/Start are 0 (AP not yet integrated); check makes the widget
          show real data automatically once the Bills module is added and populates them */''}
     ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas', 'por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}

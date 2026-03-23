@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import { format } from 'date-fns';
 import { promises as fs, readFileSync } from 'fs';
-import { resolve as resolvePath } from 'path';
+import { resolve as resolvePath, relative as pathRelative, isAbsolute as isAbsolutePath } from 'path';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
 import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
@@ -61,10 +61,12 @@ function readDocsMarkdown(): string {
     console.warn(`[readDocsMarkdown] REPORT_DOCS_PATH must end with ".md". Ignoring: "${docsPath}"`);
     return '';
   }
-  // Guard against path-traversal: the resolved path must stay within cwd.
+  // Guard against path-traversal: resolved path must stay within cwd.
+  // Use path.relative() so the check works correctly on all platforms.
   const cwd = resolvePath('.');
   const resolved = resolvePath(docsPath);
-  if (!resolved.startsWith(cwd + '/') && resolved !== cwd) {
+  const rel = pathRelative(cwd, resolved);
+  if (rel.startsWith('..') || isAbsolutePath(rel)) {
     console.warn(`[readDocsMarkdown] REPORT_DOCS_PATH outside working directory. Ignoring: "${docsPath}"`);
     return '';
   }
