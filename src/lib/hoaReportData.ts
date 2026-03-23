@@ -545,8 +545,10 @@ export function buildHoaReportData(
       .map(li => {
         const num = invoiceNumberById.get(li.invoice_id) ?? li.invoice_id;
         const applied = parseFloat(String(li.amount || 0));
-        return `${num} $${applied.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-      });
+        return { num, text: `${num} $${applied.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` };
+      })
+      .sort((a, b) => a.num.localeCompare(b.num, undefined, { numeric: true, sensitivity: 'base' }))
+      .map(x => x.text);
     return {
       type:    'payment',
       date:    p.date || p.payment_date || '',
