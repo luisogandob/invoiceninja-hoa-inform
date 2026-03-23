@@ -196,7 +196,8 @@ class HoaReportGenerator {
       apAtPeriodEnd,
       paymentsByGroup,
       arByGroup,
-      arByUnit
+      arByUnit,
+      arByGroupUnit
     } = data;
 
     const fmt = (n: number) =>
@@ -213,8 +214,20 @@ class HoaReportGenerator {
     const ar90plus   = JSON.stringify(arByGroup.map(a => a.aged90plus));
     const arMora     = JSON.stringify(arByGroup.map(a => a.mora));
 
-    const arUnitLabels   = JSON.stringify(arByUnit.map(a => a.unitName));
-    const arUnitBalances = JSON.stringify(arByUnit.map(a => a.balance));
+    // AR stacked-by-unit chart: one column per group, stacked by Unidad Vivienda
+    const arGroupLabels = JSON.stringify(arByGroupUnit.map(g => g.groupName));
+    // Collect all unit names that appear in any group, sorted for a stable legend
+    const arUnitNames = [...new Set(arByGroupUnit.flatMap(g => Object.keys(g.byUnit)))].sort();
+    // Fixed palette for up to 8 units (1A–4B). Modulo wraps for any extras.
+    const arUnitPalette = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#06b6d4','#f97316','#ec4899'];
+    const arUnitDatasets = JSON.stringify(
+      arUnitNames.map((u, i) => ({
+        label: u,
+        data: arByGroupUnit.map(g => g.byUnit[u] ?? 0),
+        backgroundColor: arUnitPalette[i % arUnitPalette.length],
+        borderWidth: 0
+      }))
+    );
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -463,27 +476,25 @@ class HoaReportGenerator {
       });
     }
 
-    /* ── AR bar chart: one bar per Unidad Vivienda (total balance, no aging stacking) ── */
-    function buildArChart(canvasId, labels, totals) {
+    /* ── AR stacked bar: one column per group, stacked by Unidad Vivienda ── */
+    function buildArChart(canvasId, labels, datasets) {
       var el = document.getElementById(canvasId);
       if (!el) return;
       new Chart(el, {
         type: 'bar',
         data: {
           labels: labels,
-          datasets: [
-            { label: 'Saldo pendiente', data: totals, backgroundColor: '#fb923c', borderWidth: 0 }
-          ]
+          datasets: datasets
         },
         options: {
           responsive: false,
           animation:  false,
           plugins: {
-            legend: { display: false },
+            legend: { display: true, position: 'top', labels: { font: { size: 11 }, padding: 14 } },
             tooltip: {
               callbacks: {
                 label: function (item) {
-                  return '$' + item.parsed.y.toLocaleString('en-US', {
+                  return item.dataset.label + ': $' + item.parsed.y.toLocaleString('en-US', {
                     minimumFractionDigits: 2, maximumFractionDigits: 2
                   });
                 }
@@ -491,9 +502,9 @@ class HoaReportGenerator {
             }
           },
           scales: {
-            x: { ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 } },
+            x: { stacked: true, ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 } },
             y: {
-              beginAtZero: true,
+              stacked: true, beginAtZero: true,
               ticks: { callback: function (v) { return '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }); } }
             }
           }
@@ -502,7 +513,7 @@ class HoaReportGenerator {
     }
 
     buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
-    buildArChart('chart-ar', ${arUnitLabels}, ${arUnitBalances});
+    buildArChart('chart-ar', ${arGroupLabels}, ${arUnitDatasets});
 
     window.chartsReady = true;
   }());

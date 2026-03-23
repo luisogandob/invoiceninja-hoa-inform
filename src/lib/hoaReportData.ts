@@ -49,6 +49,11 @@ export interface HoaReportData {
   arByGroup: ArByGroup[];
   /** Accounts receivable at end of period, grouped by Unidad Vivienda (client.custom_value2) */
   arByUnit: ArByUnit[];
+  /**
+   * Accounts receivable at end of period, grouped by client group with a per-unit breakdown.
+   * Used to render the stacked-by-unit AR bar chart (one column per group, stacked by unit).
+   */
+  arByGroupUnit: ArByGroupUnit[];
 }
 
 export interface PaymentsByGroup {
@@ -95,6 +100,18 @@ export interface ArByUnit {
    * Currently 0 — mora line-item identification is not yet implemented.
    */
   mora: number;
+}
+
+/**
+ * Accounts receivable grouped by client group, with a per-unit breakdown for stacked charting.
+ * One entry per client group; byUnit maps each Unidad Vivienda to its outstanding balance.
+ */
+export interface ArByGroupUnit {
+  groupName: string;
+  /** Total outstanding balance for this group (sum of byUnit values) */
+  balance: number;
+  /** Outstanding balance per Unidad Vivienda: unitName → balance */
+  byUnit: Record<string, number>;
 }
 
 /** Label used when a client has no group assigned */
@@ -390,6 +407,28 @@ export function buildHoaReportData(
     }))
     .sort((a, b) => a.unitName.localeCompare(b.unitName));
 
+  // --- AR by client group × Unidad Vivienda (for stacked bar chart) ---
+  // Accumulates invoice.balance into [groupName][unitName] so the chart can render
+  // one column per group with each column stacked by unit.
+  const arGroupUnitMap: Record<string, Record<string, number>> = {};
+
+  invoicesIssuedByPeriodEnd.forEach(inv => {
+    const balance = parseFloat(String(inv.balance || 0));
+    if (balance <= 0) return;
+    const group = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
+    const unit  = resolveUnit(inv.client_id, inv.client_name || inv.client?.name);
+    if (!arGroupUnitMap[group]) arGroupUnitMap[group] = {};
+    arGroupUnitMap[group][unit] = (arGroupUnitMap[group][unit] ?? 0) + balance;
+  });
+
+  const arByGroupUnit: ArByGroupUnit[] = Object.entries(arGroupUnitMap)
+    .map(([groupName, byUnit]) => ({
+      groupName,
+      balance: Object.values(byUnit).reduce((s, v) => s + v, 0),
+      byUnit
+    }))
+    .sort((a, b) => a.groupName.localeCompare(b.groupName));
+
   // --- Accounts payable ---
   // An expense contributes to CxP at a given boundary date if:
   //   1. It was created on or before the boundary (expense.date ≤ boundary), AND
@@ -430,7 +469,8 @@ export function buildHoaReportData(
     apAtPeriodEnd,
     paymentsByGroup,
     arByGroup,
-    arByUnit
+    arByUnit,
+    arByGroupUnit
   };
 }
 
