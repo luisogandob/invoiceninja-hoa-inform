@@ -213,10 +213,8 @@ class HoaReportGenerator {
     const ar90plus   = JSON.stringify(arByGroup.map(a => a.aged90plus));
     const arMora     = JSON.stringify(arByGroup.map(a => a.mora));
 
-    const arUnitLabels  = JSON.stringify(arByUnit.map(a => a.unitName));
-    const arUnit0_90    = JSON.stringify(arByUnit.map(a => a.aged0_90));
-    const arUnit90plus  = JSON.stringify(arByUnit.map(a => a.aged90plus));
-    const arUnitMora    = JSON.stringify(arByUnit.map(a => a.mora));
+    const arUnitLabels   = JSON.stringify(arByUnit.map(a => a.unitName));
+    const arUnitBalances = JSON.stringify(arByUnit.map(a => a.balance));
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -465,8 +463,8 @@ class HoaReportGenerator {
       });
     }
 
-    /* ── AR stacked bar: orange / red / purple ── */
-    function buildArChart(canvasId, labels, d0_90, d90plus, dMora) {
+    /* ── AR bar chart: one bar per Unidad Vivienda (total balance, no aging stacking) ── */
+    function buildArChart(canvasId, labels, totals) {
       var el = document.getElementById(canvasId);
       if (!el) return;
       new Chart(el, {
@@ -474,20 +472,18 @@ class HoaReportGenerator {
         data: {
           labels: labels,
           datasets: [
-            { label: '< 90 d\\u00edas',  data: d0_90,   backgroundColor: '#fb923c', borderWidth: 0 },
-            { label: '\\u2265 90 d\\u00edas', data: d90plus, backgroundColor: '#ef4444', borderWidth: 0 },
-            { label: 'Mora',             data: dMora,   backgroundColor: '#a855f7', borderWidth: 0 }
+            { label: 'Saldo pendiente', data: totals, backgroundColor: '#fb923c', borderWidth: 0 }
           ]
         },
         options: {
           responsive: false,
           animation:  false,
           plugins: {
-            legend: { display: true, position: 'top', labels: { font: { size: 11 }, padding: 14 } },
+            legend: { display: false },
             tooltip: {
               callbacks: {
                 label: function (item) {
-                  return item.dataset.label + ': $' + item.parsed.y.toLocaleString('en-US', {
+                  return '$' + item.parsed.y.toLocaleString('en-US', {
                     minimumFractionDigits: 2, maximumFractionDigits: 2
                   });
                 }
@@ -495,9 +491,9 @@ class HoaReportGenerator {
             }
           },
           scales: {
-            x: { stacked: true, ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 } },
+            x: { ticks: { autoSkip: false, maxRotation: 35, minRotation: 0 } },
             y: {
-              stacked: true, beginAtZero: true,
+              beginAtZero: true,
               ticks: { callback: function (v) { return '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 }); } }
             }
           }
@@ -506,7 +502,7 @@ class HoaReportGenerator {
     }
 
     buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
-    buildArChart('chart-ar', ${arUnitLabels}, ${arUnit0_90}, ${arUnit90plus}, ${arUnitMora});
+    buildArChart('chart-ar', ${arUnitLabels}, ${arUnitBalances});
 
     window.chartsReady = true;
   }());
