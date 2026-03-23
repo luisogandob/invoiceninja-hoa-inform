@@ -74,6 +74,18 @@ export interface HoaReportData {
   expensesByVendor: ExpenseByVendor[];
 
   /**
+   * Outstanding AP at period end, broken down into emission-age buckets.
+   * Values are grand totals across all vendors.
+   */
+  apAgingBuckets: ApAgingBuckets;
+
+  /**
+   * Outstanding AP at period end, one entry per vendor.
+   * Sorted by balance descending.  Used for the Análisis de CxP vendor table.
+   */
+  apByVendor: ApByVendor[];
+
+  /**
    * Chronological ledger of all cash inflows (payments) and outflows
    * (expenses paid within the period), sorted by date ascending.
    * Used to render the Flujo de Efectivo page.
@@ -180,6 +192,26 @@ export interface ExpenseByCategory {
 export interface ExpenseByVendor {
   vendorName: string;
   amount: number;
+}
+
+/** AP emission-age grand totals at the end of the period */
+export interface ApAgingBuckets {
+  aged0_30: number;
+  aged31_60: number;
+  aged61_90: number;
+  aged90plus: number;
+}
+
+/**
+ * Outstanding accounts payable for a single vendor at the end of the period.
+ * Used to render the per-vendor AP breakdown table on the Análisis de CxP page.
+ */
+export interface ApByVendor {
+  vendorName: string;
+  /** Number of outstanding expense records for this vendor */
+  expenseCount: number;
+  /** Total outstanding balance for this vendor at period end */
+  balance: number;
 }
 
 /**
@@ -583,6 +615,46 @@ export function buildHoaReportData(
     .filter(e => isExpenseUnpaidAt(e, periodStart))
     .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
 
+  // --- AP aging buckets + vendor breakdown (at period end) ---
+  // Iterate once over outstanding expenses, bucket by emission age, and group by vendor.
+  const outstandingAtEnd = allExpenses.filter(e => isExpenseUnpaidAt(e, periodEnd));
+
+  const apAgingBuckets: ApAgingBuckets = { aged0_30: 0, aged31_60: 0, aged61_90: 0, aged90plus: 0 };
+  interface VendorAP { expenseCount: number; balance: number; }
+  const apVendorMap: Record<string, VendorAP> = {};
+
+  outstandingAtEnd.forEach(e => {
+    const amount = parseFloat(String(e.amount || 0));
+    const vendorKey = e.vendor_name ?? e.vendor?.name ?? 'Sin Suplidor';
+
+    // Aging bucket by emission date
+    const dateStr = e.date || e.expense_date;
+    try {
+      const expDate = dateStr ? parseISO(dateStr) : null;
+      const age = expDate ? Math.max(0, differenceInDays(periodEnd, expDate)) : 0;
+      if (age <= 30) {
+        apAgingBuckets.aged0_30 += amount;
+      } else if (age <= 60) {
+        apAgingBuckets.aged31_60 += amount;
+      } else if (age <= 90) {
+        apAgingBuckets.aged61_90 += amount;
+      } else {
+        apAgingBuckets.aged90plus += amount;
+      }
+    } catch {
+      apAgingBuckets.aged0_30 += amount; // fallback
+    }
+
+    // Vendor accumulation
+    if (!apVendorMap[vendorKey]) apVendorMap[vendorKey] = { expenseCount: 0, balance: 0 };
+    apVendorMap[vendorKey].expenseCount += 1;
+    apVendorMap[vendorKey].balance += amount;
+  });
+
+  const apByVendor: ApByVendor[] = Object.entries(apVendorMap)
+    .map(([vendorName, v]) => ({ vendorName, expenseCount: v.expenseCount, balance: v.balance }))
+    .sort((a, b) => b.balance - a.balance);
+
   // --- Expenses by category (for doughnut chart) ---
   // Group period expenses by their category name, then sort by amount descending.
   const expenseCategoryMap: Record<string, number> = {};
@@ -687,6 +759,8 @@ export function buildHoaReportData(
     arByClient,
     expensesByCategory,
     expensesByVendor,
+    apAgingBuckets,
+    apByVendor,
     cashFlowEntries,
     perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
     bankBalance: (allTimePaymentsTotal - allTimeExpensesPaidTotal) + initialBalance,

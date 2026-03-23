@@ -205,6 +205,8 @@ class HoaReportGenerator {
       arByClient,
       expensesByCategory,
       expensesByVendor,
+      apAgingBuckets,
+      apByVendor,
       cashFlowEntries,
       perpetualResult,
       bankBalance
@@ -389,6 +391,72 @@ class HoaReportGenerator {
           </tfoot>
         </table>`
       : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AP aging table HTML (Análisis de CxP — left column) ─────────────────
+    const apTotal = apAgingBuckets.aged0_30 + apAgingBuckets.aged31_60 +
+                    apAgingBuckets.aged61_90 + apAgingBuckets.aged90plus;
+    const apHasData = apTotal > 0;
+    const apAgingTableHtml = apHasData
+      ? `<table class="vendor-table" style="margin-top:12px">
+          <thead>
+            <tr>
+              <th>Antigüedad de Emisión</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1 – 30 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged0_30)}</td></tr>
+            <tr><td>31 – 60 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged31_60)}</td></tr>
+            <tr><td>61 – 90 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged61_90)}</td></tr>
+            <tr><td>+90 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged90plus)}</td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(apTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>';
+
+    // ── AP by-vendor table HTML (Análisis de CxP — right column) ────────────
+    const apVendorTotal         = apByVendor.reduce((s, v) => s + v.balance, 0);
+    const apVendorTotalExpenses = apByVendor.reduce((s, v) => s + v.expenseCount, 0);
+    const apVendorTableHtml = apByVendor.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Suplidor</th>
+              <th class="amount-col"># Gastos</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${apByVendor.map(v =>
+              `<tr>
+                <td>${this.esc(v.vendorName)}</td>
+                <td class="amount-col">${v.expenseCount}</td>
+                <td class="amount-col">$${fmt(v.balance)}</td>
+              </tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">${apVendorTotalExpenses}</td>
+              <td class="amount-col">$${fmt(apVendorTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>';
+
+    // ── AP donut chart data (serialised server-side) ─────────────────────────
+    const apDoughnutLabels  = JSON.stringify(['1 – 30 Días', '31 – 60 Días', '61 – 90 Días', '+90 Días']);
+    const apDoughnutAmounts = JSON.stringify([
+      apAgingBuckets.aged0_30, apAgingBuckets.aged31_60,
+      apAgingBuckets.aged61_90, apAgingBuckets.aged90plus
+    ]);
+    const apDoughnutColors  = JSON.stringify(['#22c55e', '#f59e0b', '#f97316', '#ef4444']);
 
     // ── Category table HTML (built server-side) ──────────────────────────────
     const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
@@ -825,7 +893,32 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ── Página 4: Flujo de Efectivo ── -->
+  <!-- ── Página 4: Análisis de Cuentas x Pagar ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Cuentas x Pagar</h1>
+      <div class="meta">Al ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: donut chart by aging + aging breakdown table -->
+      <div>
+        <div class="section-title">CxP por Antigüedad de Emisión</div>
+        ${apHasData
+          ? '<canvas id="chart-ap-donut" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>'}
+        ${apHasData ? '<div class="section-title" style="margin-top:16px">Saldo por Antigüedad de Emisión</div>' : ''}
+        ${apAgingTableHtml}
+      </div>
+      <!-- Right column: per-vendor breakdown table -->
+      <div>
+        <div class="section-title">Desglose por Suplidor</div>
+        ${apVendorTableHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Página 5: Flujo de Efectivo ── -->
   <div style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>
@@ -961,6 +1054,9 @@ class HoaReportGenerator {
 
     /* ── AR by-group doughnut (Análisis de CxC page) ── */
     buildExpenseCatDoughnut('chart-ar-donut', ${arGroupDoughnutLabels}, ${arGroupDoughnutAmounts}, ${arGroupDoughnutColors});
+
+    /* ── AP by-aging doughnut (Análisis de CxP page) ── */
+    buildExpenseCatDoughnut('chart-ap-donut', ${apDoughnutLabels}, ${apDoughnutAmounts}, ${apDoughnutColors});
 
     window.chartsReady = true;
   }());
