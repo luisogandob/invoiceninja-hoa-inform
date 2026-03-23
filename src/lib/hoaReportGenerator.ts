@@ -882,7 +882,7 @@ class HoaReportGenerator {
     /* Group header row */
     .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
     /* Unit header row */
-    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 3px 2px; }
+    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 4px 2px; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; height: 60px; vertical-align: bottom; }
     /* Data cells */
     .hm-cell { height: 16px; padding: 0; }
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
