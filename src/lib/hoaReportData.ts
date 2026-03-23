@@ -110,9 +110,13 @@ export interface ArByGroup {
   groupName: string;
   /** Sum of all aging buckets */
   balance: number;
-  /** Outstanding balance on invoices aged <90 days as of period end (orange) */
-  aged0_90: number;
-  /** Outstanding balance on invoices aged ≥90 days as of period end (red) */
+  /** Outstanding balance on invoices aged 0–30 days as of period end */
+  aged0_30: number;
+  /** Outstanding balance on invoices aged 31–60 days as of period end */
+  aged31_60: number;
+  /** Outstanding balance on invoices aged 61–90 days as of period end */
+  aged61_90: number;
+  /** Outstanding balance on invoices aged ≥91 days as of period end */
   aged90plus: number;
   /**
    * Outstanding balance from late-fee/mora line items (purple).
@@ -430,7 +434,7 @@ export function buildHoaReportData(
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
   // --- AR by client group with aging buckets ---
-  interface GroupAR { aged0_90: number; aged90plus: number; mora: number; }
+  interface GroupAR { aged0_30: number; aged31_60: number; aged61_90: number; aged90plus: number; mora: number; }
   const arGroupMap: Record<string, GroupAR> = {};
 
   invoicesIssuedByPeriodEnd.forEach(inv => {
@@ -438,29 +442,35 @@ export function buildHoaReportData(
     if (balance <= 0) return;
     const group = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
     if (!arGroupMap[group]) {
-      arGroupMap[group] = { aged0_90: 0, aged90plus: 0, mora: 0 };
+      arGroupMap[group] = { aged0_30: 0, aged31_60: 0, aged61_90: 0, aged90plus: 0, mora: 0 };
     }
 
     const dateStr = inv.date || inv.invoice_date;
     try {
       const invDate = dateStr ? parseISO(dateStr) : null;
       const age = invDate ? Math.max(0, differenceInDays(periodEnd, invDate)) : 0;
-      if (age < 90) {
-        arGroupMap[group].aged0_90 += balance;
+      if (age <= 30) {
+        arGroupMap[group].aged0_30 += balance;
+      } else if (age <= 60) {
+        arGroupMap[group].aged31_60 += balance;
+      } else if (age <= 90) {
+        arGroupMap[group].aged61_90 += balance;
       } else {
         arGroupMap[group].aged90plus += balance;
       }
       // mora = 0: line-item-level late-fee identification is not yet implemented
     } catch {
-      arGroupMap[group].aged0_90 += balance; // fallback
+      arGroupMap[group].aged0_30 += balance; // fallback
     }
   });
 
   const arByGroup: ArByGroup[] = Object.entries(arGroupMap)
     .map(([groupName, b]) => ({
       groupName,
-      balance:    b.aged0_90 + b.aged90plus + b.mora,
-      aged0_90:   b.aged0_90,
+      balance:    b.aged0_30 + b.aged31_60 + b.aged61_90 + b.aged90plus + b.mora,
+      aged0_30:   b.aged0_30,
+      aged31_60:  b.aged31_60,
+      aged61_90:  b.aged61_90,
       aged90plus: b.aged90plus,
       mora:       b.mora
     }))

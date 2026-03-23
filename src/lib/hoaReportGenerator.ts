@@ -220,7 +220,7 @@ class HoaReportGenerator {
     const payments96plus  = JSON.stringify(paymentsByGroup.map(p => p.aged96plus));
 
     const arLabels   = JSON.stringify(arByGroup.map(a => a.groupName));
-    const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_90));
+    const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_30 + a.aged31_60 + a.aged61_90));
     const ar90plus   = JSON.stringify(arByGroup.map(a => a.aged90plus));
     const arMora     = JSON.stringify(arByGroup.map(a => a.mora));
 
@@ -311,6 +311,7 @@ class HoaReportGenerator {
     const arGroupDoughnutColors  = JSON.stringify(arByGroup.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
 
     // ── AR by-group table HTML (Análisis de CxC — left column) ──────────────
+    // No tfoot — the total is carried by the aging table immediately below.
     const arGroupTotal = arByGroup.reduce((s, g) => s + g.balance, 0);
     const arGroupTableHtml = arByGroup.length > 0
       ? `<table class="vendor-table" style="margin-top:16px">
@@ -325,6 +326,28 @@ class HoaReportGenerator {
               `<tr><td>${this.esc(g.groupName)}</td><td class="amount-col">$${fmt(g.balance)}</td></tr>`
             ).join('\n            ')}
           </tbody>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AR aging-by-emission table (below group table, left column) ──────────
+    const aging0_30   = arByGroup.reduce((s, g) => s + g.aged0_30,   0);
+    const aging31_60  = arByGroup.reduce((s, g) => s + g.aged31_60,  0);
+    const aging61_90  = arByGroup.reduce((s, g) => s + g.aged61_90,  0);
+    const aging90plus = arByGroup.reduce((s, g) => s + g.aged90plus, 0);
+    const arAgingTableHtml = arByGroup.length > 0
+      ? `<table class="vendor-table" style="margin-top:12px">
+          <thead>
+            <tr>
+              <th>Antigüedad de Emisión</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1 – 30 Días</td><td class="amount-col">$${fmt(aging0_30)}</td></tr>
+            <tr><td>31 – 60 Días</td><td class="amount-col">$${fmt(aging31_60)}</td></tr>
+            <tr><td>61 – 90 Días</td><td class="amount-col">$${fmt(aging61_90)}</td></tr>
+            <tr><td>+90 Días</td><td class="amount-col">$${fmt(aging90plus)}</td></tr>
+          </tbody>
           <tfoot>
             <tr>
               <td class="total-label">Total</td>
@@ -332,7 +355,7 @@ class HoaReportGenerator {
             </tr>
           </tfoot>
         </table>`
-      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+      : '';
 
     // ── AR by-client table HTML (Análisis de CxC — right column) ────────────
     const arClientTotal   = arByClient.reduce((s, c) => s + c.balance, 0);
@@ -784,13 +807,15 @@ class HoaReportGenerator {
     </div>
 
     <div class="expense-analysis-cols">
-      <!-- Left column: donut chart by group + group summary table -->
+      <!-- Left column: donut chart by group + group summary table + aging table -->
       <div>
         <div class="section-title">CxC por Grupo de Cliente</div>
         ${arByGroup.length > 0
           ? '<canvas id="chart-ar-donut" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>'}
         ${arGroupTableHtml}
+        ${arByGroup.length > 0 ? '<div class="section-title" style="margin-top:16px">Saldo por Antigüedad de Emisión</div>' : ''}
+        ${arAgingTableHtml}
       </div>
       <!-- Right column: per-client breakdown table -->
       <div>
