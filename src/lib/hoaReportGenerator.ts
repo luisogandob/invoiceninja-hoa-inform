@@ -473,7 +473,7 @@ class HoaReportGenerator {
 
     // Group header row (merged cells per group)
     const hmGroupHeaderCells = paymentHeatmap.groups.map(g =>
-      `<th class="hm-group-hdr" colspan="${g.units.length}">${this.esc(g.groupName)}</th>`
+      `<th class="hm-group-hdr hm-group-first" colspan="${g.units.length}">${this.esc(g.groupName)}</th>`
     ).join('');
 
     // Unit header row

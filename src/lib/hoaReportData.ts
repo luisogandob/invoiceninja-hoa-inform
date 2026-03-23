@@ -295,7 +295,7 @@ export interface PaymentHeatmapData {
 }
 
 /** Maximum number of monthly rows to show on the heatmap page */
-const MAX_HEATMAP_MONTHS = 30;
+const MAX_HEATMAP_MONTHS = 33;
 
 /**
  * Day-boundary constants for the payment heatmap aging buckets.
