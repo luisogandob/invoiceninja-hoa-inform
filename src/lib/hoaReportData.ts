@@ -159,7 +159,7 @@ export interface CashFlowEntry {
   name: string;
   amount: number;
   /**
-   * For payments: comma-separated "Saldo INV-001, Abono INV-002" invoice list.
+   * For payments: comma-separated "INV-001 $150.00, INV-002 $50.00" invoice/amount list.
    * For expenses: public_notes of the expense (may be empty).
    */
   subLine: string;
@@ -530,15 +530,11 @@ export function buildHoaReportData(
   // Combines payments received and expenses paid within the period,
   // sorted chronologically (ascending by date).
 
-  // Build a lookup: invoice id → { number, balance } so we can label each
-  // paymentable as "Saldo" (fully settled, balance ≈ 0) or "Abono" (partial).
-  const invoiceInfoById = new Map<string, { number: string; balance: number }>();
+  // Build a lookup: invoice id → invoice number for the sub-line display.
+  const invoiceNumberById = new Map<string, string>();
   allInvoices.forEach(inv => {
     if (!inv.id) return;
-    invoiceInfoById.set(inv.id, {
-      number:  inv.number || inv.id,
-      balance: parseFloat(String(inv.balance || 0))
-    });
+    invoiceNumberById.set(inv.id, inv.number || inv.id);
   });
 
   // Payment inflow entries
@@ -547,9 +543,9 @@ export function buildHoaReportData(
     const invoiceParts = linked
       .filter(li => li.invoice_id)
       .map(li => {
-        const info = invoiceInfoById.get(li.invoice_id);
-        const label = !info || info.balance <= 0.01 ? 'Saldo' : 'Abono';
-        return `${label} ${info?.number ?? li.invoice_id}`;
+        const num = invoiceNumberById.get(li.invoice_id) ?? li.invoice_id;
+        const applied = parseFloat(String(li.amount || 0));
+        return `${num} $${applied.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
       });
     return {
       type:    'payment',
