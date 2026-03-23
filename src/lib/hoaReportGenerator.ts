@@ -363,7 +363,7 @@ class HoaReportGenerator {
       ? (totalPaymentsInPeriod / totalInvoicedInPeriod * 100).toFixed(1)
       : null;
     /** Outstanding AR that is older than 60 days (aged61_90 + aged90plus across all groups) */
-    const arMorosidad = arByGroup.reduce((s, g) => s + g.aged61_90 + g.aged90plus, 0);
+    const arMorosidad = arByGroup.reduce((s, g) => s + g.aged90plus, 0);
     /** Formatted morosidad string "$$X (Y%)" or null when arAtPeriodEnd is 0 */
     const arMorosidadStr = arAtPeriodEnd > 0
       ? `$${fmt(arMorosidad)} (${(arMorosidad / arAtPeriodEnd * 100).toFixed(1)}%)`
@@ -1033,7 +1033,7 @@ class HoaReportGenerator {
       align-items: center;
       justify-content: space-between;
       margin-top: 12px;
-      padding: 14px 20px;
+      padding: 8px 16px;
       border-radius: 8px;
       color: #fff;
     }
@@ -1059,7 +1059,7 @@ class HoaReportGenerator {
       letter-spacing: 0;
     }
     .cf-result-card__amount {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
@@ -1344,7 +1344,7 @@ class HoaReportGenerator {
   <!-- ── Row 2: Balance KPIs with trend ── -->
   <div class="kpi-row2">
     ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
-      arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +60d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
+      arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +90d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
     ${/* apAtPeriodEnd/Start are 0 (AP not yet integrated); check makes the widget
          show real data automatically once the Bills module is added and populates them */''}
     ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas', 'por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
