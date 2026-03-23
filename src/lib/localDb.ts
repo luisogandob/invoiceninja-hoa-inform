@@ -237,11 +237,6 @@ export interface DbQueryResult {
    * Used to determine when each invoice was fully paid for the payment heatmap.
    */
   invoiceLastPaymentDate: Record<string, string>;
-  /**
-   * Non-deleted payments received during the same calendar window one year prior,
-   * with paymentables populated.  Used for the daily cash-flow comparison chart.
-   */
-  priorPeriodPayments: Payment[];
 }
 
 // ---------------------------------------------------------------------------
@@ -778,43 +773,6 @@ export function queryForReport(
     SELECT * FROM client_groups
   `).all() as ClientGroupRow[]).map(rowToClientGroup);
 
-  // Prior-year same period — payments for the daily cash-flow comparison chart
-  const priorStart    = new Date(periodStart.getFullYear() - 1, periodStart.getMonth(), periodStart.getDate());
-  const priorEnd      = new Date(periodEnd.getFullYear()   - 1, periodEnd.getMonth(),   periodEnd.getDate());
-  const priorStartISO = format(priorStart, 'yyyy-MM-dd');
-  const priorEndISO   = format(priorEnd,   'yyyy-MM-dd');
-
-  const priorPaymentRows = db.prepare(`
-    SELECT * FROM payments
-    WHERE date >= ? AND date <= ? AND is_deleted = 0
-  `).all(priorStartISO, priorEndISO) as PaymentRow[];
-
-  const priorPaymentableRows = db.prepare(`
-    SELECT pa.*
-    FROM paymentables pa
-    INNER JOIN payments p ON p.id = pa.payment_id
-    WHERE p.date >= ? AND p.date <= ? AND p.is_deleted = 0
-  `).all(priorStartISO, priorEndISO) as PaymentableRow[];
-
-  const priorPaymentablesMap = new Map<string, Array<{ invoice_id: string; amount: number }>>();
-  for (const pa of priorPaymentableRows) {
-    let list = priorPaymentablesMap.get(pa.payment_id);
-    if (!list) { list = []; priorPaymentablesMap.set(pa.payment_id, list); }
-    list.push({ invoice_id: pa.invoice_id, amount: pa.amount });
-  }
-
-  const priorPeriodPayments: Payment[] = priorPaymentRows.map(row => ({
-    id:                    row.id,
-    number:                row.number           ?? undefined,
-    client_id:             row.client_id        ?? undefined,
-    client_name:           row.client_name      ?? undefined,
-    amount:                row.amount,
-    date:                  row.date             ?? undefined,
-    transaction_reference: row.transaction_reference ?? undefined,
-    is_deleted:            row.is_deleted       === 1,
-    paymentables:          priorPaymentablesMap.get(row.id) ?? [],
-  }));
-
   return {
     allInvoices,
     periodInvoices,
@@ -842,7 +800,6 @@ export function queryForReport(
         .filter(r => r.paid_date)
         .map(r => [r.invoice_id, r.paid_date])
     ),
-    priorPeriodPayments,
   };
 }
 

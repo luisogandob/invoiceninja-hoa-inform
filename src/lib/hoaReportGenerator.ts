@@ -244,10 +244,9 @@ class HoaReportGenerator {
       }))
     );
 
-    // Daily cash-flow line chart data
+    // Daily bank-balance line chart data
     const cfDailyDates   = JSON.stringify(cfDailyData.dates);
-    const cfDailyCurrent = JSON.stringify(cfDailyData.currentNet);
-    const cfDailyPrior   = JSON.stringify(cfDailyData.priorNet);
+    const cfDailyBalance = JSON.stringify(cfDailyData.balance);
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -1050,7 +1049,7 @@ class HoaReportGenerator {
     </div>
     ${cashFlowHtml}
     <div class="chart-section" style="margin-top: 28px;">
-      <div class="section-title">Movimiento Diario de Efectivo</div>
+      <div class="section-title">Balance Diario en Banco según Registros</div>
       <canvas id="chart-cf-daily" width="680" height="250"></canvas>
     </div>
   </div>
@@ -1186,8 +1185,8 @@ class HoaReportGenerator {
     /* ── AP by-aging doughnut (Análisis de CxP page) ── */
     buildExpenseCatDoughnut('chart-ap-donut', ${apDoughnutLabels}, ${apDoughnutAmounts}, ${apDoughnutColors});
 
-    /* ── Daily cash-flow line chart (Flujo de Efectivo page) ── */
-    function buildCfLineChart(canvasId, dates, currentNet, priorNet) {
+    /* ── Daily bank-balance line chart (Flujo de Efectivo page) ── */
+    function buildCfLineChart(canvasId, dates, balance) {
       var el = document.getElementById(canvasId);
       if (!el) return;
       new Chart(el, {
@@ -1196,23 +1195,12 @@ class HoaReportGenerator {
           labels: dates,
           datasets: [
             {
-              label: 'Período Actual',
-              data: currentNet,
+              label: 'Balance en Banco',
+              data: balance,
               borderColor: '#2563eb',
               backgroundColor: 'rgba(37,99,235,0.08)',
               borderWidth: 2,
               pointRadius: 0,
-              fill: true,
-              tension: 0.3
-            },
-            {
-              label: 'Período Anterior',
-              data: priorNet,
-              borderColor: '#9ca3af',
-              backgroundColor: 'rgba(156,163,175,0.06)',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              borderDash: [4, 3],
               fill: true,
               tension: 0.3
             }
@@ -1222,11 +1210,11 @@ class HoaReportGenerator {
           responsive: false,
           animation:  false,
           plugins: {
-            legend: { display: true, position: 'top', labels: { font: { size: 11 }, padding: 14 } },
+            legend: { display: false },
             tooltip: {
               callbacks: {
                 label: function (item) {
-                  return item.dataset.label + ': $' + item.parsed.y.toLocaleString('en-US', {
+                  return 'Balance: $' + item.parsed.y.toLocaleString('en-US', {
                     minimumFractionDigits: 2, maximumFractionDigits: 2
                   });
                 }
@@ -1254,7 +1242,7 @@ class HoaReportGenerator {
       });
     }
 
-    buildCfLineChart('chart-cf-daily', ${cfDailyDates}, ${cfDailyCurrent}, ${cfDailyPrior});
+    buildCfLineChart('chart-cf-daily', ${cfDailyDates}, ${cfDailyBalance});
 
     window.chartsReady = true;
   }());

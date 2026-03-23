@@ -93,9 +93,9 @@ export interface HoaReportData {
   cashFlowEntries: CashFlowEntry[];
 
   /**
-   * Daily net cash flow (payments minus expenses) for the current period and
-   * the same-duration window one year prior, used to render the line chart on
-   * the Flujo de Efectivo page.
+   * Cumulative daily bank balance for the current period, used to render the
+   * "Balance Diario en Banco según Registros" line chart on the Flujo de Efectivo page.
+   * Each point = balanceAtPeriodStart + sum of net cash (payments − expenses paid) up to that day.
    */
   cfDailyData: CfDailyData;
 
@@ -228,15 +228,19 @@ export interface ApByVendor {
 }
 
 /**
- * Data for the daily cash-flow line chart on the Flujo de Efectivo page.
+ * Data for the daily bank-balance line chart on the Flujo de Efectivo page.
+ * Shows the cumulative running balance (Balance Inicial + net movements to date)
+ * for each day of the period.
  */
 export interface CfDailyData {
   /** X-axis labels in "dd/mm" format, one per day in the current period */
   dates: string[];
-  /** Net cash (payments − expenses) for each day of the current period */
-  currentNet: number[];
-  /** Net cash for the corresponding day exactly one year prior */
-  priorNet: number[];
+  /**
+   * Cumulative running bank balance for each day:
+   *   balance[0] = balanceAtPeriodStart + net(day 0)
+   *   balance[n] = balance[n-1]         + net(day n)
+   */
+  balance: number[];
 }
 
 /**
@@ -357,7 +361,6 @@ const HEATMAP_DAY_TIER3 = 90;  // ≤90 d → yellow-green; >90 d → yellow
  * @param allTimeExpensesPaidTotal Sum of ALL expenses paid (payment_date ≤ periodEnd) (for perpetualResult)
  * @param initialBalance           Opening/initial bank balance to add to perpetualResult (from INITIAL_BANK_BALANCE env)
  * @param invoiceLastPaymentDate   invoice_id → latest payment date (YYYY-MM-DD); used for heatmap aging
- * @param priorPeriodPayments      Payments from the same calendar window one year prior; used for the daily CF line chart
  */
 export function buildHoaReportData(
   allInvoices: Invoice[],
@@ -374,8 +377,7 @@ export function buildHoaReportData(
   allTimePaymentsTotal = 0,
   allTimeExpensesPaidTotal = 0,
   initialBalance = 0,
-  invoiceLastPaymentDate: Record<string, string> = {},
-  priorPeriodPayments: Payment[] = []
+  invoiceLastPaymentDate: Record<string, string> = {}
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -822,7 +824,13 @@ export function buildHoaReportData(
   const cashFlowEntries: CashFlowEntry[] = [...cfPayments, ...cfExpenses]
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  // --- Daily cash-flow data (line chart: current period vs. same window 1 year prior) ---
+  // --- Daily bank balance (line chart: "Balance Diario en Banco según Registros") ---
+  // The chart shows the cumulative running bank balance for every day in the period:
+  //   balanceAtPeriodStart = bankBalance − totalPaymentsInPeriod + totalExpensesPaidInPeriod
+  //   balance[d] = balance[d-1] + net(d)   where net(d) = payments_on_d − expenses_paid_on_d
+
+  const bankBalanceAtPeriodEnd = allTimePaymentsTotal - allTimeExpensesPaidTotal + initialBalance;
+  const balanceAtPeriodStart = bankBalanceAtPeriodEnd - totalPaymentsInPeriod + totalExpensesPaidInPeriod;
 
   // Build daily-net maps keyed by YYYY-MM-DD
   const currentDayNet = new Map<string, number>();
@@ -840,39 +848,20 @@ export function buildHoaReportData(
     } catch { /* skip malformed dates */ }
   }
 
-  const priorStart = new Date(periodStart.getFullYear() - 1, periodStart.getMonth(), periodStart.getDate());
-  const priorEnd   = new Date(periodEnd.getFullYear()   - 1, periodEnd.getMonth(),   periodEnd.getDate());
-  const priorDayNet = new Map<string, number>();
-  for (const p of priorPeriodPayments) {
-    if (!p.date) continue;
-    priorDayNet.set(p.date, (priorDayNet.get(p.date) ?? 0) + parseFloat(String(p.amount || 0)));
-  }
-  for (const e of allExpenses) {
-    if (!e.payment_date) continue;
-    try {
-      const d = parseISO(e.payment_date);
-      if (!isBefore(d, priorStart) && !isAfter(d, priorEnd)) {
-        priorDayNet.set(e.payment_date, (priorDayNet.get(e.payment_date) ?? 0) - parseFloat(String(e.amount || 0)));
-      }
-    } catch { /* skip malformed dates */ }
-  }
-
-  // Enumerate every day in the current period to build aligned arrays
-  const cfDates:      string[] = [];
-  const cfCurrentNet: number[] = [];
-  const cfPriorNet:   number[] = [];
+  // Enumerate every day in the current period to build the cumulative balance array
+  const cfDates:   string[] = [];
+  const cfBalance: number[] = [];
+  let runningBalance = balanceAtPeriodStart;
   const cur = new Date(periodStart);
   while (!isAfter(cur, periodEnd)) {
     const dateStr = formatDate(cur);
-    // X-axis label: "dd/mm"
     cfDates.push(dateStr.substring(8, 10) + '/' + dateStr.substring(5, 7));
-    cfCurrentNet.push(currentDayNet.get(dateStr) ?? 0);
-    // Corresponding prior-year date: same month/day, one year back
-    cfPriorNet.push(priorDayNet.get(formatDate(new Date(cur.getFullYear() - 1, cur.getMonth(), cur.getDate()))) ?? 0);
+    runningBalance += (currentDayNet.get(dateStr) ?? 0);
+    cfBalance.push(runningBalance);
     cur.setDate(cur.getDate() + 1);
   }
 
-  const cfDailyData: CfDailyData = { dates: cfDates, currentNet: cfCurrentNet, priorNet: cfPriorNet };
+  const cfDailyData: CfDailyData = { dates: cfDates, balance: cfBalance };
 
   // --- Payment heatmap (Comportamiento Histórico de Pagos) ---
   // Build a month × unit grid showing payment status for each invoice issued.

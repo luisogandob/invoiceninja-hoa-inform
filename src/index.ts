@@ -154,7 +154,6 @@ class HOAInformAutomation {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups,
           allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
-          priorPeriodPayments
         } = result;
 
         allInvoicesRef = allInvoices;
@@ -176,8 +175,7 @@ class HOAInformAutomation {
           allTimePaymentsTotal,
           allTimeExpensesPaidTotal,
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
-          invoiceLastPaymentDate,
-          priorPeriodPayments
+          invoiceLastPaymentDate
         );
       } finally {
         db.close();
@@ -277,7 +275,6 @@ class HOAInformAutomation {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups,
           allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
-          priorPeriodPayments
         } = result;
 
         allInvoicesForStats  = allInvoices;
@@ -308,8 +305,7 @@ class HOAInformAutomation {
           allTimePaymentsTotal,
           allTimeExpensesPaidTotal,
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
-          invoiceLastPaymentDate,
-          priorPeriodPayments
+          invoiceLastPaymentDate
         );
       } finally {
         db.close();
