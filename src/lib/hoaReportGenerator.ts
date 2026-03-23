@@ -1356,7 +1356,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
-      ? '<canvas id="chart-payments" width="680" height="200"></canvas>'
+      ? '<canvas id="chart-payments" width="680" height="220"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
@@ -1364,7 +1364,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
-      ? '<canvas id="chart-ar" width="680" height="200"></canvas>'
+      ? '<canvas id="chart-ar" width="680" height="220"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
