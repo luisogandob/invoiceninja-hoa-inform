@@ -406,10 +406,8 @@ class HoaReportGenerator {
       const lbl = lines.map(l => this.esc(l)).join('<br>');
       return `
       <div class="kpi-item ${colorCls}">
-        <div class="kpi-header">
-          <div class="kpi-icon">${icon}</div>
-          <div class="kpi-label">${lbl}</div>
-        </div>
+        <div class="kpi-icon">${icon}</div>
+        <div class="kpi-label">${lbl}</div>
         <div class="kpi-value">${this.esc(value)}</div>
         ${subHtml ? subHtml : ''}
       </div>`;
@@ -437,10 +435,8 @@ class HoaReportGenerator {
         : `<div class="kpi-value kpi-na">N/D</div>`;
       return `
       <div class="kpi-item ${colorCls}">
-        <div class="kpi-header">
-          <div class="kpi-icon">${icon}</div>
-          <div class="kpi-label">${lbl}</div>
-        </div>
+        <div class="kpi-icon">${icon}</div>
+        <div class="kpi-label">${lbl}</div>
         ${valueHtml}
         ${trendHtml}
         ${subHtml ?? ''}
@@ -860,19 +856,12 @@ class HoaReportGenerator {
     .kpi-sky    { border-top-color: #0284c7; }
     .kpi-violet { border-top-color: #7c3aed; }
     /* icon colors */
-    .kpi-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; }
+    .kpi-icon { display: block; width: 22px; height: 22px; margin-bottom: 4px; }
     .kpi-blue .kpi-icon   { color: #1d4ed8; }
     .kpi-green .kpi-icon  { color: #16a34a; }
     .kpi-amber .kpi-icon  { color: #b45309; }
     .kpi-sky .kpi-icon    { color: #0284c7; }
     .kpi-violet .kpi-icon { color: #7c3aed; }
-    /* icon + label inline row */
-    .kpi-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-bottom: 3px;
-    }
     /* text */
     .kpi-label {
       font-size: 9px;
@@ -881,6 +870,7 @@ class HoaReportGenerator {
       text-transform: uppercase;
       color: #6b7280;
       line-height: 1.5;
+      margin-bottom: 3px;
       white-space: nowrap;
     }
     .kpi-value {
@@ -1367,7 +1357,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
-      ? '<canvas id="chart-payments" width="680" height="215"></canvas>'
+      ? '<canvas id="chart-payments" width="680" height="200"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
@@ -1375,7 +1365,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
-      ? '<canvas id="chart-ar" width="680" height="215"></canvas>'
+      ? '<canvas id="chart-ar" width="680" height="200"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
