@@ -145,10 +145,10 @@ class HoaReportGenerator {
             <span class="pageNumber"></span> / <span class="totalPages"></span>
           </div>`,
         margin: {
-          top: '1cm',
-          bottom: '1.5cm',
-          left: '1.2cm',
-          right: '1.2cm'
+          top: '0.5cm',
+          bottom: '1cm',
+          left: '0.5cm',
+          right: '0.5cm'
         }
       });
 
@@ -352,7 +352,7 @@ class HoaReportGenerator {
   <title>${this.esc(title)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 24px; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 8px; }
 
     /* ── Header ── */
     .report-header {
