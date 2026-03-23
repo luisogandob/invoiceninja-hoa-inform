@@ -871,7 +871,6 @@ class HoaReportGenerator {
       color: #6b7280;
       line-height: 1.5;
       margin-bottom: 3px;
-      white-space: nowrap;
     }
     .kpi-value {
       font-size: 22px;
@@ -1337,20 +1336,20 @@ class HoaReportGenerator {
 
   <!-- ── Row 1: Operational KPIs ── -->
   <div class="kpi-row1">
-    ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
-    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
+    ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
+    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
       cobranzaPct !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} % Cobranza: ${this.esc(cobranzaPct)}%</div>` : undefined)}
-    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
+    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
       `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} $${fmt(totalExpensesPaidInPeriod)} pagado en el período.</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
   <div class="kpi-row2">
-    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
+    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
       arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +90d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
     ${/* apAtPeriodEnd/Start are 0 (AP not yet integrated); check makes the widget
          show real data automatically once the Bills module is added and populates them */''}
-    ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
+    ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas', 'por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group (stacked by aging) ── -->
