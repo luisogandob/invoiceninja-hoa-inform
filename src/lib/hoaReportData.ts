@@ -66,6 +66,13 @@ export interface HoaReportData {
    * Used to render the vendor table on the Análisis de Gastos page.
    */
   expensesByVendor: ExpenseByVendor[];
+
+  /**
+   * Chronological ledger of all cash inflows (payments) and outflows
+   * (expenses paid within the period), sorted by date ascending.
+   * Used to render the Flujo de Efectivo page.
+   */
+  cashFlowEntries: CashFlowEntry[];
 }
 
 export interface PaymentsByGroup {
@@ -136,6 +143,26 @@ export interface ExpenseByCategory {
 export interface ExpenseByVendor {
   vendorName: string;
   amount: number;
+}
+
+/**
+ * A single entry in the cash flow ledger.
+ * Payments are inflows (+), expenses paid are outflows (−).
+ */
+export interface CashFlowEntry {
+  type: 'payment' | 'expense';
+  /** YYYY-MM-DD — used for chronological sorting and display */
+  date: string;
+  /** Transaction reference (payments) or empty string (expenses) */
+  number: string;
+  /** Client name (payment) or vendor name (expense) */
+  name: string;
+  amount: number;
+  /**
+   * For payments: comma-separated "Saldo INV-001, Abono INV-002" invoice list.
+   * For expenses: public_notes of the expense (may be empty).
+   */
+  subLine: string;
 }
 
 /** Label used when a client has no group assigned */
@@ -499,6 +526,63 @@ export function buildHoaReportData(
     .map(([vendorName, amount]) => ({ vendorName, amount }))
     .sort((a, b) => b.amount - a.amount);
 
+  // --- Cash flow ledger (Flujo de Efectivo) ---
+  // Combines payments received and expenses paid within the period,
+  // sorted chronologically (ascending by date).
+
+  // Build a lookup: invoice id → { number, balance } so we can label each
+  // paymentable as "Saldo" (fully settled, balance ≈ 0) or "Abono" (partial).
+  const invoiceInfoById = new Map<string, { number: string; balance: number }>();
+  allInvoices.forEach(inv => {
+    if (!inv.id) return;
+    invoiceInfoById.set(inv.id, {
+      number:  inv.number || inv.id,
+      balance: parseFloat(String(inv.balance || 0))
+    });
+  });
+
+  // Payment inflow entries
+  const cfPayments: CashFlowEntry[] = periodPayments.map(p => {
+    const linked = p.paymentables ?? p.invoices ?? [];
+    const invoiceParts = linked
+      .filter(li => li.invoice_id)
+      .map(li => {
+        const info = invoiceInfoById.get(li.invoice_id);
+        const label = !info || info.balance <= 0.01 ? 'Saldo' : 'Abono';
+        return `${label} ${info?.number ?? li.invoice_id}`;
+      });
+    return {
+      type:    'payment',
+      date:    p.date || p.payment_date || '',
+      number:  p.transaction_reference || '',
+      name:    p.client_name || p.client?.name || 'Sin Cliente',
+      amount:  parseFloat(String(p.amount || 0)),
+      subLine: invoiceParts.join(', ')
+    };
+  });
+
+  // Expense outflow entries (only expenses whose payment_date falls in the period)
+  const cfExpenses: CashFlowEntry[] = allExpenses
+    .filter(e => {
+      if (!e.payment_date) return false;
+      try {
+        const d = parseISO(e.payment_date);
+        return !isBefore(d, periodStart) && !isAfter(d, periodEnd);
+      } catch { return false; }
+    })
+    .map(e => ({
+      type:    'expense' as const,
+      date:    e.payment_date!,
+      number:  '',
+      name:    e.vendor_name || e.vendor?.name || 'Sin Suplidor',
+      amount:  parseFloat(String(e.amount || 0)),
+      subLine: e.public_notes || ''
+    }));
+
+  // Merge and sort ascending by date string (YYYY-MM-DD lexicographic = chronological)
+  const cashFlowEntries: CashFlowEntry[] = [...cfPayments, ...cfExpenses]
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     title,
     periodStart: formatDate(periodStart),
@@ -517,7 +601,8 @@ export function buildHoaReportData(
     arByUnit,
     arByGroupUnit,
     expensesByCategory,
-    expensesByVendor
+    expensesByVendor,
+    cashFlowEntries
   };
 }
 

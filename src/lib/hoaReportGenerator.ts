@@ -179,6 +179,10 @@ class HoaReportGenerator {
   private static readonly ICON_RECEIVABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 15 9 15 6 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
   private static readonly ICON_PAYABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`;
   private static readonly ICON_CASH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>`;
+  /** Cash inflow — arrow pointing up (green) */
+  private static readonly ICON_CASH_IN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="16 12 12 8 8 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>`;
+  /** Cash outflow — arrow pointing down (red) */
+  private static readonly ICON_CASH_OUT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>`;
 
   buildHtml(data: HoaReportData): string {
     const {
@@ -199,7 +203,8 @@ class HoaReportGenerator {
       arByUnit,
       arByGroupUnit,
       expensesByCategory,
-      expensesByVendor
+      expensesByVendor,
+      cashFlowEntries
     } = data;
 
     const fmt = (n: number) =>
@@ -345,6 +350,78 @@ class HoaReportGenerator {
         </table>`
       : `<p class="no-data">Sin gastos en el período.</p>`;
 
+    // ── Cash flow table HTML (built server-side) ─────────────────────────────
+    const cfTotalIn  = cashFlowEntries
+      .filter(e => e.type === 'payment')
+      .reduce((s, e) => s + e.amount, 0);
+    const cfTotalOut = cashFlowEntries
+      .filter(e => e.type === 'expense')
+      .reduce((s, e) => s + e.amount, 0);
+    const cfResult   = cfTotalIn - cfTotalOut;
+    const cfResultSign = cfResult >= 0 ? '+' : '';
+
+    /** Format a YYYY-MM-DD date string: returns [dayMonth, year] for a 2-line display */
+    const fmtDate2 = (dateStr: string): [string, string] => {
+      if (!dateStr) return ['', ''];
+      const parts = dateStr.split('-');
+      if (parts.length < 3) return [dateStr, ''];
+      return [`${parts[2]}/${parts[1]}`, parts[0]];
+    };
+
+    const cfRowsHtml = cashFlowEntries.length > 0
+      ? cashFlowEntries.map(entry => {
+          const isIn = entry.type === 'payment';
+          const icon = isIn
+            ? `<span class="cf-icon cf-icon--in">${HoaReportGenerator.ICON_CASH_IN}</span>`
+            : `<span class="cf-icon cf-icon--out">${HoaReportGenerator.ICON_CASH_OUT}</span>`;
+          const amountStr = isIn
+            ? `<span class="cf-amount cf-amount--in">+$${fmt(entry.amount)}</span>`
+            : `<span class="cf-amount cf-amount--out">−$${fmt(entry.amount)}</span>`;
+          const subLineHtml = entry.subLine
+            ? `<div class="cf-subline">${this.esc(entry.subLine)}</div>`
+            : '';
+          const numberHtml = entry.number ? this.esc(entry.number) : '—';
+          const [dayMonth, year] = fmtDate2(entry.date);
+          return `<tr>
+            <td class="cf-icon-cell">${icon}</td>
+            <td class="cf-date-cell">${this.esc(dayMonth)}<br><span class="cf-year">${this.esc(year)}</span></td>
+            <td class="cf-num-cell">${numberHtml}</td>
+            <td>${this.esc(entry.name)}${subLineHtml}</td>
+            <td class="cf-amount-cell">${amountStr}</td>
+          </tr>`;
+        }).join('\n          ')
+      : `<tr><td colspan="5" class="no-data">Sin movimientos en el período.</td></tr>`;
+
+    const cashFlowHtml = `
+    <table class="cf-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Fecha</th>
+          <th>Número</th>
+          <th>Nombre</th>
+          <th class="cf-amount-cell">Monto</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cfRowsHtml}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="4" class="cf-total-label">Total de Pagos Recibidos</td>
+          <td class="cf-amount-cell cf-total-in">+$${fmt(cfTotalIn)}</td>
+        </tr>
+        <tr>
+          <td colspan="4" class="cf-total-label">Total de Pagos Realizados</td>
+          <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
+        </tr>
+        <tr class="cf-result-row">
+          <td colspan="4" class="cf-total-label">Resultado del Período</td>
+          <td class="cf-amount-cell">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
+        </tr>
+      </tfoot>
+    </table>`;
+
     return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -482,6 +559,50 @@ class HoaReportGenerator {
     }
     .vendor-table .amount-col { text-align: right; }
     .total-label { font-size: 12px; }
+
+    /* ── Flujo de Efectivo page ── */
+    .cf-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .cf-table th,
+    .cf-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .cf-table th {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7280;
+      background: #f9fafb;
+      white-space: nowrap;
+    }
+    .cf-icon-cell { width: 26px; text-align: center; padding-top: 7px; }
+    .cf-icon { display: inline-block; width: 18px; height: 18px; }
+    .cf-icon--in  { color: #16a34a; }
+    .cf-icon--out { color: #dc2626; }
+    .cf-date-cell { white-space: nowrap; font-size: 11px; }
+    .cf-year { font-size: 10px; color: #9ca3af; }
+    .cf-num-cell  { font-size: 11px; color: #6b7280; white-space: nowrap; }
+    .cf-subline   { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .cf-amount-cell { text-align: right; white-space: nowrap; font-size: 12px; }
+    .cf-amount { font-weight: 600; }
+    .cf-amount--in  { color: #16a34a; }
+    .cf-amount--out { color: #dc2626; }
+    .cf-table tfoot td {
+      font-weight: 700;
+      border-bottom: none;
+      background: #f9fafb;
+    }
+    .cf-table tfoot tr:first-child td { border-top: 2px solid #1e2d3d; }
+    .cf-total-label { font-size: 12px; }
+    .cf-total-in  { color: #16a34a; }
+    .cf-total-out { color: #dc2626; }
+    .cf-result-row td { border-top: 2px solid #1e2d3d; font-size: 13px; background: #fff; }
   </style>
 </head>
 <body>
@@ -547,6 +668,15 @@ class HoaReportGenerator {
         ${vendorTableHtml}
       </div>
     </div>
+  </div>
+
+  <!-- ── Página 3: Flujo de Efectivo ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Flujo de Efectivo</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+    ${cashFlowHtml}
   </div>
 
   <!-- ── Chart.js (inlined) ── -->

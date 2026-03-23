@@ -18,6 +18,7 @@ const SCHEMA_SQL = `
     id          TEXT    PRIMARY KEY,
     client_id   TEXT,
     client_name TEXT,
+    number      TEXT,
     amount      REAL    NOT NULL DEFAULT 0,
     balance     REAL    NOT NULL DEFAULT 0,
     date        TEXT,
@@ -31,12 +32,13 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_inv_balance ON invoices(balance) WHERE balance > 0;
 
   CREATE TABLE IF NOT EXISTS payments (
-    id          TEXT    PRIMARY KEY,
-    client_id   TEXT,
-    client_name TEXT,
-    amount      REAL    NOT NULL DEFAULT 0,
-    date        TEXT,
-    is_deleted  INTEGER NOT NULL DEFAULT 0
+    id                    TEXT    PRIMARY KEY,
+    client_id             TEXT,
+    client_name           TEXT,
+    amount                REAL    NOT NULL DEFAULT 0,
+    date                  TEXT,
+    transaction_reference TEXT,
+    is_deleted            INTEGER NOT NULL DEFAULT 0
   );
   -- Filter payments by date (period queries)
   CREATE INDEX IF NOT EXISTS idx_pay_date   ON payments(date);
@@ -59,6 +61,7 @@ const SCHEMA_SQL = `
     amount       REAL    NOT NULL DEFAULT 0,
     date         TEXT,
     payment_date TEXT,
+    public_notes TEXT,
     is_deleted   INTEGER NOT NULL DEFAULT 0
   );
   -- Filter expenses by date (period queries)
@@ -117,6 +120,7 @@ interface InvoiceRow {
   id: string;
   client_id: string | null;
   client_name: string | null;
+  number: string | null;
   amount: number;
   balance: number;
   date: string | null;
@@ -129,6 +133,7 @@ interface PaymentRow {
   client_name: string | null;
   amount: number;
   date: string | null;
+  transaction_reference: string | null;
   is_deleted: number;
 }
 
@@ -145,6 +150,7 @@ interface ExpenseRow {
   amount: number;
   date: string | null;
   payment_date: string | null;
+  public_notes: string | null;
   is_deleted: number;
   vendor_name: string | null;
   category_name: string | null;
@@ -234,6 +240,24 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
     .some(col => col.name === 'custom_value2');
   if (!hasCustomValue2) {
     db.exec(`ALTER TABLE clients ADD COLUMN custom_value2 TEXT`);
+  }
+  // Migrate: add number column to invoices if missing
+  const invoiceCols = (db.prepare(`PRAGMA table_info(invoices)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!invoiceCols.includes('number')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN number TEXT`);
+  }
+  // Migrate: add transaction_reference column to payments if missing
+  const paymentCols = (db.prepare(`PRAGMA table_info(payments)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!paymentCols.includes('transaction_reference')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN transaction_reference TEXT`);
+  }
+  // Migrate: add public_notes column to expenses if missing
+  const expenseCols = (db.prepare(`PRAGMA table_info(expenses)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!expenseCols.includes('public_notes')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN public_notes TEXT`);
   }
   return db;
 }
@@ -358,12 +382,12 @@ export async function syncDb(
 
   // Prepared statements (reused across rows for performance)
   const stmtInvoice = db.prepare(`
-    INSERT OR REPLACE INTO invoices(id, client_id, client_name, amount, balance, date, is_deleted)
-    VALUES (@id, @client_id, @client_name, @amount, @balance, @date, @is_deleted)
+    INSERT OR REPLACE INTO invoices(id, client_id, client_name, number, amount, balance, date, is_deleted)
+    VALUES (@id, @client_id, @client_name, @number, @amount, @balance, @date, @is_deleted)
   `);
   const stmtPayment = db.prepare(`
-    INSERT OR REPLACE INTO payments(id, client_id, client_name, amount, date, is_deleted)
-    VALUES (@id, @client_id, @client_name, @amount, @date, @is_deleted)
+    INSERT OR REPLACE INTO payments(id, client_id, client_name, amount, date, transaction_reference, is_deleted)
+    VALUES (@id, @client_id, @client_name, @amount, @date, @transaction_reference, @is_deleted)
   `);
   const stmtPaymentable = db.prepare(`
     INSERT OR REPLACE INTO paymentables(payment_id, invoice_id, amount)
@@ -371,8 +395,8 @@ export async function syncDb(
   `);
   const deletePaymentables = db.prepare(`DELETE FROM paymentables WHERE payment_id = ?`);
   const stmtExpense = db.prepare(`
-    INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, is_deleted)
-    VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @is_deleted)
+    INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, public_notes, is_deleted)
+    VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
   `);
   const stmtClient = db.prepare(`
     INSERT OR REPLACE INTO clients(id, name, group_settings_id, custom_value2, is_deleted)
@@ -411,6 +435,7 @@ export async function syncDb(
         id:          inv.id ?? '',
         client_id:   inv.client_id ?? null,
         client_name: resolveClientName(inv),
+        number:      inv.number ?? null,
         amount:      Number(inv.amount) || 0,
         balance:     Number(inv.balance) || 0,
         date:        resolveDate(inv, 'invoice_date'),
@@ -430,12 +455,13 @@ export async function syncDb(
     for (const p of payments) {
       const pid = p.id ?? '';
       stmtPayment.run({
-        id:          pid,
-        client_id:   p.client_id ?? null,
-        client_name: resolveClientName(p),
-        amount:      Number(p.amount) || 0,
-        date:        resolveDate(p, 'payment_date'),
-        is_deleted:  p.is_deleted ? 1 : 0,
+        id:                    pid,
+        client_id:             p.client_id ?? null,
+        client_name:           resolveClientName(p),
+        amount:                Number(p.amount) || 0,
+        date:                  resolveDate(p, 'payment_date'),
+        transaction_reference: p.transaction_reference ?? null,
+        is_deleted:            p.is_deleted ? 1 : 0,
       });
       // Re-sync paymentables fully for each payment to avoid stale rows
       deletePaymentables.run(pid);
@@ -467,6 +493,7 @@ export async function syncDb(
         amount:       Number(e.amount) || 0,
         date:         resolveDate(e, 'expense_date'),
         payment_date: e.payment_date ?? null,
+        public_notes: e.public_notes ?? null,
         is_deleted:   e.is_deleted ? 1 : 0,
       });
     }
@@ -575,6 +602,7 @@ function rowToInvoice(row: InvoiceRow): Invoice {
     id:          row.id,
     client_id:   row.client_id  ?? undefined,
     client_name: row.client_name ?? undefined,
+    number:      row.number     ?? undefined,
     amount:      row.amount,
     balance:     row.balance,
     date:        row.date ?? undefined,
@@ -590,6 +618,7 @@ function rowToExpense(row: ExpenseRow): Expense {
     amount:        row.amount,
     date:          row.date           ?? undefined,
     payment_date:  row.payment_date   ?? undefined,
+    public_notes:  row.public_notes   ?? undefined,
     is_deleted:    row.is_deleted     === 1,
     vendor_name:   row.vendor_name    ?? undefined,
     category_name: row.category_name  ?? undefined,
@@ -665,13 +694,14 @@ export function queryForReport(
 
   // Assemble Payment objects with paymentables attached
   const periodPayments: Payment[] = paymentRows.map(row => ({
-    id:           row.id,
-    client_id:    row.client_id    ?? undefined,
-    client_name:  row.client_name  ?? undefined,
-    amount:       row.amount,
-    date:         row.date         ?? undefined,
-    is_deleted:   row.is_deleted   === 1,
-    paymentables: paymentablesMap.get(row.id) ?? [],
+    id:                    row.id,
+    client_id:             row.client_id    ?? undefined,
+    client_name:           row.client_name  ?? undefined,
+    amount:                row.amount,
+    date:                  row.date         ?? undefined,
+    transaction_reference: row.transaction_reference ?? undefined,
+    is_deleted:            row.is_deleted   === 1,
+    paymentables:          paymentablesMap.get(row.id) ?? [],
   }));
 
   // All expenses (not deleted) — used for AP outstanding balance
