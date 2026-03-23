@@ -855,7 +855,7 @@ export function buildHoaReportData(
   const cur = new Date(periodStart);
   while (!isAfter(cur, periodEnd)) {
     const dateStr = formatDate(cur);
-    cfDates.push(dateStr.substring(8, 10) + '/' + dateStr.substring(5, 7));
+    cfDates.push(dateStr.substring(8, 10) + '/' + dateStr.substring(5, 7) + '/' + dateStr.substring(0, 4));
     runningBalance += (currentDayNet.get(dateStr) ?? 0);
     cfBalance.push(runningBalance);
     cur.setDate(cur.getDate() + 1);
