@@ -358,7 +358,7 @@ class HoaReportGenerator {
       .filter(e => e.type === 'expense')
       .reduce((s, e) => s + e.amount, 0);
     const cfResult   = cfTotalIn - cfTotalOut;
-    const cfResultSign = cfResult >= 0 ? '+' : '';
+    const cfResultSign = cfResult >= 0 ? '+' : '−';
 
     /** Format a YYYY-MM-DD date string as a single dd/mm/yyyy line */
     const fmtDate1 = (dateStr: string): string => {
@@ -412,12 +412,12 @@ class HoaReportGenerator {
           <td colspan="4" class="cf-total-label">Total de Pagos Realizados</td>
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
-        <tr class="cf-totals-row cf-result-row">
-          <td colspan="4" class="cf-total-label">Resultado del Período</td>
-          <td class="cf-amount-cell">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
-        </tr>
       </tbody>
-    </table>`;
+    </table>
+    <div class="cf-result-card ${cfResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__label">Resultado del Período</div>
+      <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
+    </div>`;
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -598,7 +598,30 @@ class HoaReportGenerator {
     .cf-total-label { font-size: 12px; }
     .cf-total-in  { color: #16a34a; }
     .cf-total-out { color: #dc2626; }
-    .cf-result-row td { border-top: 2px solid #1e2d3d; font-size: 13px; background: #fff; }
+    /* ── Period result card ── */
+    .cf-result-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding: 14px 20px;
+      border-radius: 8px;
+      color: #fff;
+    }
+    .cf-result-card--pos { background: #16a34a; }
+    .cf-result-card--neg { background: #dc2626; }
+    .cf-result-card__label {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.9;
+    }
+    .cf-result-card__amount {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
   </style>
 </head>
 <body>
