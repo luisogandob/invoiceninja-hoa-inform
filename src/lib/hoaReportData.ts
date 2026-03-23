@@ -295,7 +295,7 @@ export interface PaymentHeatmapData {
 }
 
 /** Maximum number of monthly rows to show on the heatmap page */
-const MAX_HEATMAP_MONTHS = 36;
+const MAX_HEATMAP_MONTHS = 30;
 
 /**
  * Day-boundary constants for the payment heatmap aging buckets.
@@ -889,7 +889,7 @@ export function buildHoaReportData(
     const yr = Math.floor(absMonth / 12);
     const mo = absMonth % 12; // 0-indexed
     const monthKey = `${yr}-${String(mo + 1).padStart(2, '0')}`;
-    const monthLabel = `${MONTH_NAMES_ES[mo]} ${yr}`;
+    const monthLabel = `${MONTH_NAMES_ES[mo]} ${String(yr).slice(-2)}`;
 
     const cells: Record<string, PaymentHeatmapStatus> = {};
     for (const colKey of hmColumnKeys) {

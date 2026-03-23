@@ -477,16 +477,21 @@ class HoaReportGenerator {
     ).join('');
 
     // Unit header row
-    const hmUnitHeaderCells = hmColKeys.map(ck => {
+    const hmUnitHeaderCells = hmColKeys.map((ck, idx) => {
       const unitLabel = ck.split('|')[1] ?? ck;
-      return `<th class="hm-unit-hdr">${this.esc(unitLabel)}</th>`;
+      // Mark the first column of each group with a divider class
+      const isGroupFirst = idx === 0 || ck.split('|')[0] !== hmColKeys[idx - 1].split('|')[0];
+      const extra = isGroupFirst ? ' hm-group-first' : '';
+      return `<th class="hm-unit-hdr${extra}">${this.esc(unitLabel)}</th>`;
     }).join('');
 
     // Data rows
     const hmDataRows = paymentHeatmap.rows.map(row => {
-      const dataCells = hmColKeys.map(ck =>
-        `<td class="hm-cell ${statusClass[row.cells[ck] ?? 'none']}"></td>`
-      ).join('');
+      const dataCells = hmColKeys.map((ck, idx) => {
+        const isGroupFirst = idx === 0 || ck.split('|')[0] !== hmColKeys[idx - 1].split('|')[0];
+        const extra = isGroupFirst ? ' hm-group-first' : '';
+        return `<td class="hm-cell ${statusClass[row.cells[ck] ?? 'none']}${extra}"></td>`;
+      }).join('');
       return `<tr><td class="hm-month-col">${this.esc(row.monthLabel)}</td>${dataCells}</tr>`;
     }).join('\n        ');
 
@@ -882,7 +887,9 @@ class HoaReportGenerator {
     /* Group header row */
     .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
     /* Unit header row */
-    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 4px 2px; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; height: 60px; vertical-align: bottom; }
+    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 4px 2px; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; height: 40px; vertical-align: bottom; }
+    /* Group divider — left border on the first column of every client group */
+    .hm-group-first { border-left: 2px solid #9ca3af !important; }
     /* Data cells */
     .hm-cell { height: 16px; padding: 0; }
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
