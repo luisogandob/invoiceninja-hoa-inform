@@ -73,6 +73,7 @@ const SCHEMA_SQL = `
     id                TEXT    PRIMARY KEY,
     name              TEXT,
     group_settings_id TEXT,
+    custom_value2     TEXT,
     is_deleted        INTEGER NOT NULL DEFAULT 0
   );
   -- Resolve client → group
@@ -151,6 +152,7 @@ interface ClientRow {
   id: string;
   name: string | null;
   group_settings_id: string | null;
+  custom_value2: string | null;
   is_deleted: number;
 }
 
@@ -223,6 +225,14 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.exec(SCHEMA_SQL);
+  // Migrate: add custom_value2 column if it doesn't exist yet (idempotent).
+  // Use PRAGMA table_info to check before attempting ALTER TABLE so we never
+  // silently swallow unrelated database errors.
+  const hasCustomValue2 = (db.prepare(`PRAGMA table_info(clients)`).all() as Array<{ name: string }>)
+    .some(col => col.name === 'custom_value2');
+  if (!hasCustomValue2) {
+    db.exec(`ALTER TABLE clients ADD COLUMN custom_value2 TEXT`);
+  }
   return db;
 }
 
@@ -363,8 +373,8 @@ export async function syncDb(
     VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @is_deleted)
   `);
   const stmtClient = db.prepare(`
-    INSERT OR REPLACE INTO clients(id, name, group_settings_id, is_deleted)
-    VALUES (@id, @name, @group_settings_id, @is_deleted)
+    INSERT OR REPLACE INTO clients(id, name, group_settings_id, custom_value2, is_deleted)
+    VALUES (@id, @name, @group_settings_id, @custom_value2, @is_deleted)
   `);
   const stmtContact = db.prepare(`
     INSERT OR REPLACE INTO client_contacts(id, client_id, first_name, last_name, email, phone, is_primary)
@@ -474,6 +484,7 @@ export async function syncDb(
         id:                c.id,
         name:              c.name ?? null,
         group_settings_id: c.group_settings_id ?? null,
+        custom_value2:     c.custom_value2 ?? null,
         is_deleted:        c.is_deleted ? 1 : 0,
       });
       // Re-sync contacts for this client (handles additions, removals, updates)
@@ -586,6 +597,7 @@ function rowToClient(row: ClientRow): Client {
     id:                row.id,
     name:              row.name              ?? '',
     group_settings_id: row.group_settings_id ?? undefined,
+    custom_value2:     row.custom_value2     ?? undefined,
     is_deleted:        row.is_deleted === 1,
   };
 }

@@ -195,7 +195,8 @@ class HoaReportGenerator {
       apAtPeriodStart,
       apAtPeriodEnd,
       paymentsByGroup,
-      arByGroup
+      arByGroup,
+      arByUnit
     } = data;
 
     const fmt = (n: number) =>
@@ -211,6 +212,11 @@ class HoaReportGenerator {
     const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_90));
     const ar90plus   = JSON.stringify(arByGroup.map(a => a.aged90plus));
     const arMora     = JSON.stringify(arByGroup.map(a => a.mora));
+
+    const arUnitLabels  = JSON.stringify(arByUnit.map(a => a.unitName));
+    const arUnit0_90    = JSON.stringify(arByUnit.map(a => a.aged0_90));
+    const arUnit90plus  = JSON.stringify(arByUnit.map(a => a.aged90plus));
+    const arUnitMora    = JSON.stringify(arByUnit.map(a => a.mora));
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -405,10 +411,10 @@ class HoaReportGenerator {
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
-  <!-- ── Bar Chart: AR by Client Group (stacked by aging) ── -->
+  <!-- ── Bar Chart: AR by Unidad Vivienda (stacked by aging) ── -->
   <div class="chart-section">
-    <div class="section-title">Cuentas por Cobrar al Final del Período por Grupo de Clientes</div>
-    ${arByGroup.length > 0
+    <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
+    ${arByUnit.length > 0
       ? '<canvas id="chart-ar" width="680" height="320"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
@@ -500,7 +506,7 @@ class HoaReportGenerator {
     }
 
     buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
-    buildArChart('chart-ar', ${arLabels}, ${ar0_90}, ${ar90plus}, ${arMora});
+    buildArChart('chart-ar', ${arUnitLabels}, ${arUnit0_90}, ${arUnit90plus}, ${arUnitMora});
 
     window.chartsReady = true;
   }());

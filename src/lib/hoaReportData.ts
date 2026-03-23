@@ -47,6 +47,8 @@ export interface HoaReportData {
   paymentsByGroup: PaymentsByGroup[];
   /** Accounts receivable at end of period, grouped by client group, with aging buckets */
   arByGroup: ArByGroup[];
+  /** Accounts receivable at end of period, grouped by Unidad Vivienda (client.custom_value2) */
+  arByUnit: ArByUnit[];
 }
 
 export interface PaymentsByGroup {
@@ -76,8 +78,30 @@ export interface ArByGroup {
   mora: number;
 }
 
+/**
+ * Accounts receivable grouped by the client's Unidad Vivienda (custom_value2).
+ * Same aging-bucket structure as ArByGroup.
+ */
+export interface ArByUnit {
+  unitName: string;
+  /** Sum of all aging buckets */
+  balance: number;
+  /** Outstanding balance on invoices aged <90 days as of period end (orange) */
+  aged0_90: number;
+  /** Outstanding balance on invoices aged ≥90 days as of period end (red) */
+  aged90plus: number;
+  /**
+   * Outstanding balance from late-fee/mora line items (purple).
+   * Currently 0 — mora line-item identification is not yet implemented.
+   */
+  mora: number;
+}
+
 /** Label used when a client has no group assigned */
 const NO_GROUP_LABEL = 'Sin Grupo';
+
+/** Label used when a client has no Unidad Vivienda (custom_value2) set */
+const NO_UNIT_LABEL = 'Sin Unidad';
 
 /**
  * Build the HoaReportData from raw Invoice Ninja data.
@@ -135,6 +159,10 @@ export function buildHoaReportData(
   // --- Lookup helpers ---
   // clientById: id → Client
   const clientById = new Map<string, Client>(allClients.map(c => [c.id, c]));
+  // clientByName: name → Client (first match; for fallback when client_id is absent)
+  const clientByName = new Map<string, Client>(
+    allClients.filter(c => c.name).map(c => [c.name, c])
+  );
   // groupNameById: group id → group name
   const groupNameById = new Map<string, string>(clientGroups.map(g => [g.id, g.name]));
 
@@ -148,12 +176,25 @@ export function buildHoaReportData(
     }
     // If no client_id, try to find the client by name
     if (clientName) {
-      const clientByName = allClients.find(c => c.name === clientName);
-      if (clientByName?.group_settings_id) {
-        return groupNameById.get(clientByName.group_settings_id) ?? NO_GROUP_LABEL;
+      const c = clientByName.get(clientName);
+      if (c?.group_settings_id) {
+        return groupNameById.get(c.group_settings_id) ?? NO_GROUP_LABEL;
       }
     }
     return NO_GROUP_LABEL;
+  }
+
+  /** Resolve a client_id to its Unidad Vivienda (custom_value2), falling back through client_name */
+  function resolveUnit(clientId: string | undefined, clientName: string | undefined): string {
+    if (clientId) {
+      const client = clientById.get(clientId);
+      if (client?.custom_value2) return client.custom_value2;
+    }
+    if (clientName) {
+      const c = clientByName.get(clientName);
+      if (c?.custom_value2) return c.custom_value2;
+    }
+    return NO_UNIT_LABEL;
   }
 
   // --- Totals for the period ---
@@ -313,6 +354,42 @@ export function buildHoaReportData(
     }))
     .sort((a, b) => a.groupName.localeCompare(b.groupName));
 
+  // --- AR by Unidad Vivienda (client.custom_value2) with aging buckets ---
+  interface UnitAR { aged0_90: number; aged90plus: number; mora: number; }
+  const arUnitMap: Record<string, UnitAR> = {};
+
+  invoicesIssuedByPeriodEnd.forEach(inv => {
+    const balance = parseFloat(String(inv.balance || 0));
+    if (balance <= 0) return;
+    const unit = resolveUnit(inv.client_id, inv.client_name || inv.client?.name);
+    if (!arUnitMap[unit]) {
+      arUnitMap[unit] = { aged0_90: 0, aged90plus: 0, mora: 0 };
+    }
+
+    const dateStr = inv.date || inv.invoice_date;
+    try {
+      const invDate = dateStr ? parseISO(dateStr) : null;
+      const age = invDate ? Math.max(0, differenceInDays(periodEnd, invDate)) : 0;
+      if (age < 90) {
+        arUnitMap[unit].aged0_90 += balance;
+      } else {
+        arUnitMap[unit].aged90plus += balance;
+      }
+    } catch {
+      arUnitMap[unit].aged0_90 += balance; // fallback
+    }
+  });
+
+  const arByUnit: ArByUnit[] = Object.entries(arUnitMap)
+    .map(([unitName, b]) => ({
+      unitName,
+      balance:    b.aged0_90 + b.aged90plus + b.mora,
+      aged0_90:   b.aged0_90,
+      aged90plus: b.aged90plus,
+      mora:       b.mora
+    }))
+    .sort((a, b) => a.unitName.localeCompare(b.unitName));
+
   // --- Accounts payable ---
   // An expense contributes to CxP at a given boundary date if:
   //   1. It was created on or before the boundary (expense.date ≤ boundary), AND
@@ -352,7 +429,8 @@ export function buildHoaReportData(
     apAtPeriodStart,
     apAtPeriodEnd,
     paymentsByGroup,
-    arByGroup
+    arByGroup,
+    arByUnit
   };
 }
 

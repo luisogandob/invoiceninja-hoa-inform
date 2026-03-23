@@ -84,6 +84,11 @@ export interface Client {
   /** True when the record has been soft-deleted in Invoice Ninja */
   is_deleted?: boolean;
   /**
+   * Second custom field value — used to store the "Unidad Vivienda" (Housing Unit)
+   * label that appears on the AR chart.
+   */
+  custom_value2?: string;
+  /**
    * Contacts embedded in the client object.
    * Available when the API is called with `include: 'contacts'` or by default in IN v5.
    */
