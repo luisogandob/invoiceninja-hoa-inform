@@ -1,4 +1,4 @@
-import { parseISO, isBefore, isEqual, differenceInDays } from 'date-fns';
+import { parseISO, isBefore, isAfter, isEqual, differenceInDays } from 'date-fns';
 import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
@@ -20,6 +20,8 @@ export interface HoaReportData {
   totalPaymentsInPeriod: number;
   /** Total expenses registered during the period */
   totalExpensesInPeriod: number;
+  /** Total expenses paid (payment_date within the period) */
+  totalExpensesPaidInPeriod: number;
   /** Accounts receivable at the START of the period */
   arAtPeriodStart: number;
   /** Accounts receivable at the END of the period */
@@ -162,6 +164,18 @@ export function buildHoaReportData(
     0
   );
 
+  // --- Expenses paid within the period ---
+  // An expense is "paid in the period" when its payment_date falls within [periodStart, periodEnd].
+  const totalExpensesPaidInPeriod = allExpenses
+    .filter(e => {
+      if (!e.payment_date) return false;
+      try {
+        const d = parseISO(e.payment_date);
+        return !isBefore(d, periodStart) && !isAfter(d, periodEnd);
+      } catch { return false; }
+    })
+    .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
+
   // --- AR at end of period ---
   // All invoices issued on or before the period end date that still carry a balance.
   const invoicesIssuedByPeriodEnd = allInvoices.filter(inv => {
@@ -212,29 +226,34 @@ export function buildHoaReportData(
       try { return parseISO(s); } catch { return null; }
     })();
 
+    // Use the full payment amount (p.amount) — not per-paymentable li.amount — so that
+    // the sum of all aging buckets equals totalPaymentsInPeriod and matches the platform.
+    const paymentAmt = parseFloat(String(p.amount || 0));
     const linkedInvoices = p.paymentables ?? p.invoices;
     if (paymentDate && linkedInvoices && linkedInvoices.length > 0) {
-      // Distribute payment by how old each linked invoice was at the time of payment
+      // Determine aging bucket per linked invoice, then distribute p.amount proportionally.
+      const liTotalAmt = linkedInvoices.reduce(
+        (s, li) => s + parseFloat(String(li.amount || 0)), 0
+      );
       linkedInvoices.forEach(li => {
         const invDate = invoiceDateById.get(li.invoice_id);
-        const amount = parseFloat(String(li.amount || 0));
-        if (invDate) {
-          const age = Math.max(0, differenceInDays(paymentDate, invDate));
-          if (age <= 35) {
-            paymentGroupMap[group].aged0_35 += amount;
-          } else if (age <= 95) {
-            paymentGroupMap[group].aged36_95 += amount;
-          } else {
-            paymentGroupMap[group].aged96plus += amount;
-          }
+        // Proportional share of the FULL payment amount
+        const liAmt = parseFloat(String(li.amount || 0));
+        const share = liTotalAmt > 0
+          ? paymentAmt * (liAmt / liTotalAmt)
+          : paymentAmt / linkedInvoices.length;
+        const age = invDate ? Math.max(0, differenceInDays(paymentDate, invDate)) : 0;
+        if (!invDate || age <= 35) {
+          paymentGroupMap[group].aged0_35 += share;
+        } else if (age <= 95) {
+          paymentGroupMap[group].aged36_95 += share;
         } else {
-          paymentGroupMap[group].aged0_35 += amount; // unknown invoice age → treat as current
+          paymentGroupMap[group].aged96plus += share;
         }
       });
     } else {
       // No linked-invoice detail → treat full payment as current
-      const amount = parseFloat(String(p.amount || 0));
-      paymentGroupMap[group].aged0_35 += amount;
+      paymentGroupMap[group].aged0_35 += paymentAmt;
     }
   });
 
@@ -292,9 +311,10 @@ export function buildHoaReportData(
     .filter(e => !e.payment_date)
     .reduce((sum, e) => sum + parseFloat(String(e.amount || 0)), 0);
 
-  // apAtPeriodStart is always 0: CxP is a point-in-time outstanding balance;
-  // the trend arrow on the KPI card will show the full outstanding amount as the delta.
-  const apAtPeriodStart = 0;
+  // apAtPeriodStart: derive from apAtPeriodEnd by adding back the expenses paid during
+  // the period — those payments reduced the outstanding CxP balance.
+  // This lets the kpiBalance trend widget show a ▼ (decrease) equal to the expenses paid.
+  const apAtPeriodStart = apAtPeriodEnd + totalExpensesPaidInPeriod;
 
   return {
     title,
@@ -304,6 +324,7 @@ export function buildHoaReportData(
     totalInvoicedInPeriod,
     totalPaymentsInPeriod,
     totalExpensesInPeriod,
+    totalExpensesPaidInPeriod,
     arAtPeriodStart,
     arAtPeriodEnd,
     apAtPeriodStart,

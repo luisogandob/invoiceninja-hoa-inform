@@ -178,6 +178,7 @@ class HoaReportGenerator {
   private static readonly ICON_EXPENSE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16l3-3 3 3 3-3 3 3V4a2 2 0 0 0-2-2z"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="15" y2="13"/></svg>`;
   private static readonly ICON_RECEIVABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 15 9 15 6 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
   private static readonly ICON_PAYABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`;
+  private static readonly ICON_CASH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>`;
 
   buildHtml(data: HoaReportData): string {
     const {
@@ -188,6 +189,7 @@ class HoaReportGenerator {
       totalInvoicedInPeriod,
       totalPaymentsInPeriod,
       totalExpensesInPeriod,
+      totalExpensesPaidInPeriod,
       arAtPeriodStart,
       arAtPeriodEnd,
       apAtPeriodStart,
@@ -212,14 +214,15 @@ class HoaReportGenerator {
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
-    /** Row-1 metric item: icon + label + big value */
-    const kpiMetric = (icon: string, lines: string[], value: string, colorCls: string): string => {
+    /** Row-1 metric item: icon + label + big value + optional sub-line */
+    const kpiMetric = (icon: string, lines: string[], value: string, colorCls: string, subHtml?: string): string => {
       const lbl = lines.map(l => this.esc(l)).join('<br>');
       return `
       <div class="kpi-item ${colorCls}">
         <div class="kpi-icon">${icon}</div>
         <div class="kpi-label">${lbl}</div>
         <div class="kpi-value">${this.esc(value)}</div>
+        ${subHtml ? subHtml : ''}
       </div>`;
     };
 
@@ -339,6 +342,17 @@ class HoaReportGenerator {
     .kpi-trend--up   { color: #dc2626; }   /* ▲ red  — more owed = bad */
     .kpi-trend--down { color: #16a34a; }   /* ▼ green — less owed = good */
     .kpi-trend--flat { color: #9ca3af; }
+    /* sub-line shown inside a metric card (e.g. paid expenses below total expenses) */
+    .kpi-sub {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+    }
+    .kpi-sub svg { width: 14px; height: 14px; flex-shrink: 0; }
 
     /* ── Section titles ── */
     .section-title {
@@ -371,7 +385,8 @@ class HoaReportGenerator {
   <div class="kpi-row1">
     ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
     ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green')}
-    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber')}
+    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
+      `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} Pagados en el período: $${fmt(totalExpensesPaidInPeriod)}</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
