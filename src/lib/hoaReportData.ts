@@ -21,8 +21,8 @@ export interface HoaReportData {
   /** Total expenses registered during the period */
   totalExpensesInPeriod: number;
   /**
-   * Total expenses that were both created in the period (expense.date within period)
-   * and paid within the same period (payment_date within period).
+   * Total of ALL expenses (from any date) whose payment_date falls within the period.
+   * This is the sum that appears as the sub-line on the Gastos KPI card.
    */
   totalExpensesPaidInPeriod: number;
   /** Accounts receivable at the START of the period */
@@ -86,8 +86,8 @@ const NO_GROUP_LABEL = 'Sin Grupo';
  *  - totalInvoicedInPeriod : sum of invoice.amount for invoices issued within the period
  *  - totalPaymentsInPeriod : sum of payment.amount for payments received within the period
  *  - totalExpensesInPeriod        : sum of expense.amount for expenses registered within the period
- *  - totalExpensesPaidInPeriod    : sum of expense.amount for period expenses whose payment_date
- *                                   is also within the period
+ *  - totalExpensesPaidInPeriod    : sum of expense.amount for ALL expenses (any date)
+ *                                   whose payment_date is within the period
  *  - apAtPeriodEnd                : sum of allExpenses where expense.date ≤ periodEnd AND
  *                                   (!payment_date OR payment_date > periodEnd)
  *  - apAtPeriodStart              : same logic with periodStart boundary
@@ -173,9 +173,9 @@ export function buildHoaReportData(
   );
 
   // --- Expenses paid within the period ---
-  // Only expenses created IN the period (periodExpenses) AND whose payment_date
-  // also falls within [periodStart, periodEnd] count as "paid in the period".
-  const totalExpensesPaidInPeriod = periodExpenses
+  // ALL expenses (regardless of creation date) whose payment_date falls within
+  // [periodStart, periodEnd]. This drives the sub-line on the Gastos KPI card.
+  const totalExpensesPaidInPeriod = allExpenses
     .filter(e => {
       if (!e.payment_date) return false;
       try {

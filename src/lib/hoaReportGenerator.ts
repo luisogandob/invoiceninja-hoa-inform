@@ -386,7 +386,7 @@ class HoaReportGenerator {
     ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
     ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green')}
     ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
-      `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} Pagados en el período: $${fmt(totalExpensesPaidInPeriod)}</div>`)}
+      `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} $${fmt(totalExpensesPaidInPeriod)} pagado en el período.</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
