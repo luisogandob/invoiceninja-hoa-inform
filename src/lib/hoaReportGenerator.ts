@@ -456,7 +456,7 @@ class HoaReportGenerator {
       border-top: 2px solid #1e2d3d;
       border-bottom: none;
     }
-    .amount-col { text-align: right; }
+    .vendor-table .amount-col { text-align: right; }
     .total-label { font-size: 12px; }
   </style>
 </head>
