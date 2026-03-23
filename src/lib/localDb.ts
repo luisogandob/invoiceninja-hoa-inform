@@ -18,6 +18,7 @@ const SCHEMA_SQL = `
     id          TEXT    PRIMARY KEY,
     client_id   TEXT,
     client_name TEXT,
+    number      TEXT,
     amount      REAL    NOT NULL DEFAULT 0,
     balance     REAL    NOT NULL DEFAULT 0,
     date        TEXT,
@@ -31,12 +32,14 @@ const SCHEMA_SQL = `
   CREATE INDEX IF NOT EXISTS idx_inv_balance ON invoices(balance) WHERE balance > 0;
 
   CREATE TABLE IF NOT EXISTS payments (
-    id          TEXT    PRIMARY KEY,
-    client_id   TEXT,
-    client_name TEXT,
-    amount      REAL    NOT NULL DEFAULT 0,
-    date        TEXT,
-    is_deleted  INTEGER NOT NULL DEFAULT 0
+    id                    TEXT    PRIMARY KEY,
+    client_id             TEXT,
+    client_name           TEXT,
+    number                TEXT,
+    amount                REAL    NOT NULL DEFAULT 0,
+    date                  TEXT,
+    transaction_reference TEXT,
+    is_deleted            INTEGER NOT NULL DEFAULT 0
   );
   -- Filter payments by date (period queries)
   CREATE INDEX IF NOT EXISTS idx_pay_date   ON payments(date);
@@ -54,11 +57,14 @@ const SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS expenses (
     id           TEXT    PRIMARY KEY,
+    number       TEXT,
     vendor_id    TEXT,
     category_id  TEXT,
+    client_id    TEXT,
     amount       REAL    NOT NULL DEFAULT 0,
     date         TEXT,
     payment_date TEXT,
+    public_notes TEXT,
     is_deleted   INTEGER NOT NULL DEFAULT 0
   );
   -- Filter expenses by date (period queries)
@@ -117,6 +123,7 @@ interface InvoiceRow {
   id: string;
   client_id: string | null;
   client_name: string | null;
+  number: string | null;
   amount: number;
   balance: number;
   date: string | null;
@@ -127,8 +134,10 @@ interface PaymentRow {
   id: string;
   client_id: string | null;
   client_name: string | null;
+  number: string | null;
   amount: number;
   date: string | null;
+  transaction_reference: string | null;
   is_deleted: number;
 }
 
@@ -140,12 +149,18 @@ interface PaymentableRow {
 
 interface ExpenseRow {
   id: string;
+  number: string | null;
   vendor_id: string | null;
   category_id: string | null;
+  client_id: string | null;
   amount: number;
   date: string | null;
   payment_date: string | null;
+  public_notes: string | null;
   is_deleted: number;
+  vendor_name: string | null;
+  category_name: string | null;
+  client_name: string | null;
 }
 
 interface ClientRow {
@@ -206,6 +221,22 @@ export interface DbQueryResult {
   allClients:     Client[];
   /** Every client group. */
   clientGroups:   ClientGroup[];
+  /**
+   * Sum of ALL non-deleted payment amounts with date ≤ periodEnd.
+   * Used to compute the perpetual (all-time) cash-flow result.
+   */
+  allTimePaymentsTotal: number;
+  /**
+   * Sum of ALL non-deleted expense amounts whose payment_date ≤ periodEnd.
+   * Used to compute the perpetual (all-time) cash-flow result.
+   */
+  allTimeExpensesPaidTotal: number;
+  /**
+   * Maps invoice_id → the latest payment date (YYYY-MM-DD) applied to that invoice.
+   * Covers ALL payments ever recorded (not just the report period).
+   * Used to determine when each invoice was fully paid for the payment heatmap.
+   */
+  invoiceLastPaymentDate: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +263,33 @@ export function createDb(dbPath = './hoa-cache.db'): InstanceType<typeof Databas
     .some(col => col.name === 'custom_value2');
   if (!hasCustomValue2) {
     db.exec(`ALTER TABLE clients ADD COLUMN custom_value2 TEXT`);
+  }
+  // Migrate: add number column to invoices if missing
+  const invoiceCols = (db.prepare(`PRAGMA table_info(invoices)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!invoiceCols.includes('number')) {
+    db.exec(`ALTER TABLE invoices ADD COLUMN number TEXT`);
+  }
+  // Migrate: add transaction_reference column to payments if missing
+  const paymentCols = (db.prepare(`PRAGMA table_info(payments)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!paymentCols.includes('transaction_reference')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN transaction_reference TEXT`);
+  }
+  if (!paymentCols.includes('number')) {
+    db.exec(`ALTER TABLE payments ADD COLUMN number TEXT`);
+  }
+  // Migrate: add public_notes column to expenses if missing
+  const expenseCols = (db.prepare(`PRAGMA table_info(expenses)`).all() as Array<{ name: string }>)
+    .map(c => c.name);
+  if (!expenseCols.includes('public_notes')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN public_notes TEXT`);
+  }
+  if (!expenseCols.includes('number')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN number TEXT`);
+  }
+  if (!expenseCols.includes('client_id')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN client_id TEXT`);
   }
   return db;
 }
@@ -356,12 +414,12 @@ export async function syncDb(
 
   // Prepared statements (reused across rows for performance)
   const stmtInvoice = db.prepare(`
-    INSERT OR REPLACE INTO invoices(id, client_id, client_name, amount, balance, date, is_deleted)
-    VALUES (@id, @client_id, @client_name, @amount, @balance, @date, @is_deleted)
+    INSERT OR REPLACE INTO invoices(id, client_id, client_name, number, amount, balance, date, is_deleted)
+    VALUES (@id, @client_id, @client_name, @number, @amount, @balance, @date, @is_deleted)
   `);
   const stmtPayment = db.prepare(`
-    INSERT OR REPLACE INTO payments(id, client_id, client_name, amount, date, is_deleted)
-    VALUES (@id, @client_id, @client_name, @amount, @date, @is_deleted)
+    INSERT OR REPLACE INTO payments(id, client_id, client_name, number, amount, date, transaction_reference, is_deleted)
+    VALUES (@id, @client_id, @client_name, @number, @amount, @date, @transaction_reference, @is_deleted)
   `);
   const stmtPaymentable = db.prepare(`
     INSERT OR REPLACE INTO paymentables(payment_id, invoice_id, amount)
@@ -369,8 +427,8 @@ export async function syncDb(
   `);
   const deletePaymentables = db.prepare(`DELETE FROM paymentables WHERE payment_id = ?`);
   const stmtExpense = db.prepare(`
-    INSERT OR REPLACE INTO expenses(id, vendor_id, category_id, amount, date, payment_date, is_deleted)
-    VALUES (@id, @vendor_id, @category_id, @amount, @date, @payment_date, @is_deleted)
+    INSERT OR REPLACE INTO expenses(id, number, vendor_id, category_id, client_id, amount, date, payment_date, public_notes, is_deleted)
+    VALUES (@id, @number, @vendor_id, @category_id, @client_id, @amount, @date, @payment_date, @public_notes, @is_deleted)
   `);
   const stmtClient = db.prepare(`
     INSERT OR REPLACE INTO clients(id, name, group_settings_id, custom_value2, is_deleted)
@@ -409,6 +467,7 @@ export async function syncDb(
         id:          inv.id ?? '',
         client_id:   inv.client_id ?? null,
         client_name: resolveClientName(inv),
+        number:      inv.number ?? null,
         amount:      Number(inv.amount) || 0,
         balance:     Number(inv.balance) || 0,
         date:        resolveDate(inv, 'invoice_date'),
@@ -428,12 +487,14 @@ export async function syncDb(
     for (const p of payments) {
       const pid = p.id ?? '';
       stmtPayment.run({
-        id:          pid,
-        client_id:   p.client_id ?? null,
-        client_name: resolveClientName(p),
-        amount:      Number(p.amount) || 0,
-        date:        resolveDate(p, 'payment_date'),
-        is_deleted:  p.is_deleted ? 1 : 0,
+        id:                    pid,
+        client_id:             p.client_id ?? null,
+        client_name:           resolveClientName(p),
+        number:                p.number ?? null,
+        amount:                Number(p.amount) || 0,
+        date:                  resolveDate(p, 'payment_date'),
+        transaction_reference: p.transaction_reference ?? null,
+        is_deleted:            p.is_deleted ? 1 : 0,
       });
       // Re-sync paymentables fully for each payment to avoid stale rows
       deletePaymentables.run(pid);
@@ -460,11 +521,14 @@ export async function syncDb(
     for (const e of expenses) {
       stmtExpense.run({
         id:           e.id ?? '',
+        number:       e.number ?? null,
         vendor_id:    e.vendor_id ?? null,
         category_id:  e.category_id ?? null,
+        client_id:    e.client_id ?? null,
         amount:       Number(e.amount) || 0,
         date:         resolveDate(e, 'expense_date'),
         payment_date: e.payment_date ?? null,
+        public_notes: e.public_notes ?? null,
         is_deleted:   e.is_deleted ? 1 : 0,
       });
     }
@@ -573,6 +637,7 @@ function rowToInvoice(row: InvoiceRow): Invoice {
     id:          row.id,
     client_id:   row.client_id  ?? undefined,
     client_name: row.client_name ?? undefined,
+    number:      row.number     ?? undefined,
     amount:      row.amount,
     balance:     row.balance,
     date:        row.date ?? undefined,
@@ -582,13 +647,19 @@ function rowToInvoice(row: InvoiceRow): Invoice {
 
 function rowToExpense(row: ExpenseRow): Expense {
   return {
-    id:           row.id,
-    vendor_id:    row.vendor_id   ?? undefined,
-    category_id:  row.category_id ?? undefined,
-    amount:       row.amount,
-    date:         row.date         ?? undefined,
-    payment_date: row.payment_date ?? undefined,
-    is_deleted:   row.is_deleted === 1,
+    id:            row.id,
+    number:        row.number        ?? undefined,
+    vendor_id:     row.vendor_id     ?? undefined,
+    category_id:   row.category_id   ?? undefined,
+    client_id:     row.client_id     ?? undefined,
+    amount:        row.amount,
+    date:          row.date           ?? undefined,
+    payment_date:  row.payment_date   ?? undefined,
+    public_notes:  row.public_notes   ?? undefined,
+    is_deleted:    row.is_deleted     === 1,
+    vendor_name:   row.vendor_name    ?? undefined,
+    category_name: row.category_name  ?? undefined,
+    client_name:   row.client_name    ?? undefined,
   };
 }
 
@@ -661,24 +732,35 @@ export function queryForReport(
 
   // Assemble Payment objects with paymentables attached
   const periodPayments: Payment[] = paymentRows.map(row => ({
-    id:           row.id,
-    client_id:    row.client_id    ?? undefined,
-    client_name:  row.client_name  ?? undefined,
-    amount:       row.amount,
-    date:         row.date         ?? undefined,
-    is_deleted:   row.is_deleted   === 1,
-    paymentables: paymentablesMap.get(row.id) ?? [],
+    id:                    row.id,
+    number:                row.number           ?? undefined,
+    client_id:             row.client_id        ?? undefined,
+    client_name:           row.client_name      ?? undefined,
+    amount:                row.amount,
+    date:                  row.date             ?? undefined,
+    transaction_reference: row.transaction_reference ?? undefined,
+    is_deleted:            row.is_deleted       === 1,
+    paymentables:          paymentablesMap.get(row.id) ?? [],
   }));
 
   // All expenses (not deleted) — used for AP outstanding balance
   const allExpenses = (db.prepare(`
-    SELECT * FROM expenses WHERE is_deleted = 0
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name, cli.name AS client_name
+    FROM expenses e
+    LEFT JOIN vendors v ON v.id = e.vendor_id
+    LEFT JOIN expense_categories c ON c.id = e.category_id
+    LEFT JOIN clients cli ON cli.id = e.client_id
+    WHERE e.is_deleted = 0
   `).all() as ExpenseRow[]).map(rowToExpense);
 
   // Expenses within the period (gastos del período)
   const periodExpenses = (db.prepare(`
-    SELECT * FROM expenses
-    WHERE date >= ? AND date <= ? AND is_deleted = 0
+    SELECT e.*, v.name AS vendor_name, c.name AS category_name, cli.name AS client_name
+    FROM expenses e
+    LEFT JOIN vendors v ON v.id = e.vendor_id
+    LEFT JOIN expense_categories c ON c.id = e.category_id
+    LEFT JOIN clients cli ON cli.id = e.client_id
+    WHERE e.date >= ? AND e.date <= ? AND e.is_deleted = 0
   `).all(startISO, endISO) as ExpenseRow[]).map(rowToExpense);
 
   // Clients (not deleted)
@@ -699,6 +781,25 @@ export function queryForReport(
     allExpenses,
     allClients,
     clientGroups,
+    allTimePaymentsTotal:     (db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total FROM payments
+      WHERE date <= ? AND is_deleted = 0
+    `).get(endISO) as { total: number }).total,
+    allTimeExpensesPaidTotal: (db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
+      WHERE payment_date IS NOT NULL AND payment_date <= ? AND is_deleted = 0
+    `).get(endISO) as { total: number }).total,
+    invoiceLastPaymentDate: Object.fromEntries(
+      (db.prepare(`
+        SELECT pa.invoice_id, MAX(p.date) AS paid_date
+        FROM paymentables pa
+        JOIN payments p ON p.id = pa.payment_id
+        WHERE p.is_deleted = 0
+        GROUP BY pa.invoice_id
+      `).all() as Array<{ invoice_id: string; paid_date: string }>)
+        .filter(r => r.paid_date)
+        .map(r => [r.invoice_id, r.paid_date])
+    ),
   };
 }
 

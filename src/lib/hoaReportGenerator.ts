@@ -138,6 +138,7 @@ class HoaReportGenerator {
 
       const pdf = await page.pdf({
         format: 'A4',
+        printBackground: true,
         displayHeaderFooter: true,
         headerTemplate: '<div></div>',
         footerTemplate: `
@@ -145,10 +146,10 @@ class HoaReportGenerator {
             <span class="pageNumber"></span> / <span class="totalPages"></span>
           </div>`,
         margin: {
-          top: '1cm',
-          bottom: '1.5cm',
-          left: '1.2cm',
-          right: '1.2cm'
+          top: '0.5cm',
+          bottom: '1cm',
+          left: '0.5cm',
+          right: '0.5cm'
         }
       });
 
@@ -179,6 +180,10 @@ class HoaReportGenerator {
   private static readonly ICON_RECEIVABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 15 9 15 6 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>`;
   private static readonly ICON_PAYABLE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`;
   private static readonly ICON_CASH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>`;
+  /** Cash inflow — arrow pointing up (green) */
+  private static readonly ICON_CASH_IN = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="16 12 12 8 8 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>`;
+  /** Cash outflow — arrow pointing down (red) */
+  private static readonly ICON_CASH_OUT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>`;
 
   buildHtml(data: HoaReportData): string {
     const {
@@ -197,7 +202,17 @@ class HoaReportGenerator {
       paymentsByGroup,
       arByGroup,
       arByUnit,
-      arByGroupUnit
+      arByGroupUnit,
+      arByClient,
+      expensesByCategory,
+      expensesByVendor,
+      apAgingBuckets,
+      apByVendor,
+      cashFlowEntries,
+      cfDailyData,
+      paymentHeatmap,
+      perpetualResult,
+      bankBalance
     } = data;
 
     const fmt = (n: number) =>
@@ -210,7 +225,7 @@ class HoaReportGenerator {
     const payments96plus  = JSON.stringify(paymentsByGroup.map(p => p.aged96plus));
 
     const arLabels   = JSON.stringify(arByGroup.map(a => a.groupName));
-    const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_90));
+    const ar0_90     = JSON.stringify(arByGroup.map(a => a.aged0_30 + a.aged31_60 + a.aged61_90));
     const ar90plus   = JSON.stringify(arByGroup.map(a => a.aged90plus));
     const arMora     = JSON.stringify(arByGroup.map(a => a.mora));
 
@@ -228,6 +243,10 @@ class HoaReportGenerator {
         borderWidth: 0
       }))
     );
+
+    // Daily bank-balance line chart data
+    const cfDailyDates   = JSON.stringify(cfDailyData.dates);
+    const cfDailyBalance = JSON.stringify(cfDailyData.balance);
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -279,13 +298,364 @@ class HoaReportGenerator {
         `"group.SchemeName" format (e.g. "brewer.Paired12"). Using fallback palette.`
       );
     }
-    // (palette resolved but not embedded in browser — charts use fixed semantic colors)
     const colorData = getColorData();
     if (!colorData[schemeGroup]?.[schemeKey]) {
       console.warn(
         `[HoaReportGenerator] CHART_COLOR_SCHEME "${this.colorScheme}" not found in colorschemes data.`
       );
     }
+
+    // ── Doughnut chart data for Análisis de Gastos page ─────────────────────
+    // Palette is extracted server-side from the configured color scheme (or fallback)
+    const doughnutPalette: string[] = colorData[schemeGroup]?.[schemeKey] ??
+      ['#3b82f6','#22c55e','#f59e0b','#ef4444','#a855f7','#06b6d4','#f97316','#ec4899','#8b5cf6','#14b8a6','#f43f5e','#84cc16'];
+
+    const expCatLabels  = JSON.stringify(expensesByCategory.map(e => e.categoryName));
+    const expCatAmounts = JSON.stringify(expensesByCategory.map(e => e.amount));
+    const expCatColors  = JSON.stringify(expensesByCategory.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
+
+    // ── Doughnut chart data for Análisis de CxC page (AR by group) ──────────
+    const arGroupDoughnutLabels  = JSON.stringify(arByGroup.map(g => g.groupName));
+    const arGroupDoughnutAmounts = JSON.stringify(arByGroup.map(g => g.balance));
+    const arGroupDoughnutColors  = JSON.stringify(arByGroup.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
+
+    // ── AR by-group table HTML (Análisis de CxC — left column) ──────────────
+    // No tfoot — the total is carried by the aging table immediately below.
+    const arGroupTotal = arByGroup.reduce((s, g) => s + g.balance, 0);
+    const arGroupTableHtml = arByGroup.length > 0
+      ? `<table class="vendor-table" style="margin-top:16px">
+          <thead>
+            <tr>
+              <th>Grupo</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arByGroup.map(g =>
+              `<tr><td>${this.esc(g.groupName)}</td><td class="amount-col">$${fmt(g.balance)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AR aging-by-emission table (below group table, left column) ──────────
+    const aging0_30   = arByGroup.reduce((s, g) => s + g.aged0_30,   0);
+    const aging31_60  = arByGroup.reduce((s, g) => s + g.aged31_60,  0);
+    const aging61_90  = arByGroup.reduce((s, g) => s + g.aged61_90,  0);
+    const aging90plus = arByGroup.reduce((s, g) => s + g.aged90plus, 0);
+    const arAgingTableHtml = arByGroup.length > 0
+      ? `<table class="vendor-table" style="margin-top:12px">
+          <thead>
+            <tr>
+              <th>Antigüedad de Emisión</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1 – 30 Días</td><td class="amount-col">$${fmt(aging0_30)}</td></tr>
+            <tr><td>31 – 60 Días</td><td class="amount-col">$${fmt(aging31_60)}</td></tr>
+            <tr><td>61 – 90 Días</td><td class="amount-col">$${fmt(aging61_90)}</td></tr>
+            <tr><td>+90 Días</td><td class="amount-col">$${fmt(aging90plus)}</td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(arGroupTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '';
+
+    // ── AR by-client table HTML (Análisis de CxC — right column) ────────────
+    const arClientTotal   = arByClient.reduce((s, c) => s + c.balance, 0);
+    const arClientTotalInvoices = arByClient.reduce((s, c) => s + c.invoiceCount, 0);
+    const arClientTableHtml = arByClient.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Grupo</th>
+              <th class="amount-col"># Facturas</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${arByClient.map(c =>
+              `<tr>
+                <td>${this.esc(c.clientName)}</td>
+                <td>${this.esc(c.groupName)}</td>
+                <td class="amount-col">${c.invoiceCount}</td>
+                <td class="amount-col">$${fmt(c.balance)}</td>
+              </tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label" colspan="2">Total</td>
+              <td class="amount-col">${arClientTotalInvoices}</td>
+              <td class="amount-col">$${fmt(arClientTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AP aging table HTML (Análisis de CxP — left column) ─────────────────
+    const apTotal = apAgingBuckets.aged0_30 + apAgingBuckets.aged31_60 +
+                    apAgingBuckets.aged61_90 + apAgingBuckets.aged90plus;
+    const apHasData = apTotal > 0;
+    const apAgingTableHtml = apHasData
+      ? `<table class="vendor-table" style="margin-top:12px">
+          <thead>
+            <tr>
+              <th>Antigüedad de Emisión</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>1 – 30 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged0_30)}</td></tr>
+            <tr><td>31 – 60 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged31_60)}</td></tr>
+            <tr><td>61 – 90 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged61_90)}</td></tr>
+            <tr><td>+90 Días</td><td class="amount-col">$${fmt(apAgingBuckets.aged90plus)}</td></tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(apTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>';
+
+    // ── AP by-vendor table HTML (Análisis de CxP — right column) ────────────
+    const apVendorTotal         = apByVendor.reduce((s, v) => s + v.balance, 0);
+    const apVendorTotalExpenses = apByVendor.reduce((s, v) => s + v.expenseCount, 0);
+    const apVendorTableHtml = apByVendor.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Suplidor</th>
+              <th class="amount-col"># Gastos</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${apByVendor.map(v =>
+              `<tr>
+                <td>${this.esc(v.vendorName)}</td>
+                <td class="amount-col">${v.expenseCount}</td>
+                <td class="amount-col">$${fmt(v.balance)}</td>
+              </tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">${apVendorTotalExpenses}</td>
+              <td class="amount-col">$${fmt(apVendorTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>';
+
+    // ── AP donut chart data (serialised server-side) ─────────────────────────
+    const apDoughnutLabels  = JSON.stringify(['1 – 30 Días', '31 – 60 Días', '61 – 90 Días', '+90 Días']);
+    const apDoughnutAmounts = JSON.stringify([
+      apAgingBuckets.aged0_30, apAgingBuckets.aged31_60,
+      apAgingBuckets.aged61_90, apAgingBuckets.aged90plus
+    ]);
+    const apDoughnutColors  = JSON.stringify(['#22c55e', '#f59e0b', '#f97316', '#ef4444']);
+
+    // ── Payment heatmap HTML (Comportamiento Histórico de Pagos) ────────────
+    const hmColKeys = paymentHeatmap.columnKeys;
+    const statusClass: Record<string, string> = {
+      paid_0_35: 'hm-c-paid-0-35',
+      paid_36_60: 'hm-c-paid-36-60',
+      paid_61_90: 'hm-c-paid-61-90',
+      paid_90plus: 'hm-c-paid-90plus',
+      pending: 'hm-c-pending',
+      none: 'hm-c-none',
+    };
+
+    // Group header row (merged cells per group)
+    const hmGroupHeaderCells = paymentHeatmap.groups.map(g =>
+      `<th class="hm-group-hdr hm-group-first" colspan="${g.units.length}">${this.esc(g.groupName)}</th>`
+    ).join('');
+
+    // Unit header row
+    const hmUnitHeaderCells = hmColKeys.map((ck, idx) => {
+      const unitLabel = ck.split('|')[1] ?? ck;
+      // Mark the first column of each group with a divider class
+      const isGroupFirst = idx === 0 || ck.split('|')[0] !== hmColKeys[idx - 1].split('|')[0];
+      const extra = isGroupFirst ? ' hm-group-first' : '';
+      return `<th class="hm-unit-hdr${extra}">${this.esc(unitLabel)}</th>`;
+    }).join('');
+
+    // Data rows
+    const hmDataRows = paymentHeatmap.rows.map(row => {
+      const dataCells = hmColKeys.map((ck, idx) => {
+        const isGroupFirst = idx === 0 || ck.split('|')[0] !== hmColKeys[idx - 1].split('|')[0];
+        const extra = isGroupFirst ? ' hm-group-first' : '';
+        return `<td class="hm-cell ${statusClass[row.cells[ck] ?? 'none']}${extra}"></td>`;
+      }).join('');
+      return `<tr><td class="hm-month-col">${this.esc(row.monthLabel)}</td>${dataCells}</tr>`;
+    }).join('\n        ');
+
+    const heatmapHtml = hmColKeys.length > 0
+      ? `<table class="heatmap-table">
+        <thead>
+          <tr>
+            <th class="hm-month-col"></th>
+            ${hmGroupHeaderCells}
+          </tr>
+          <tr>
+            <th class="hm-month-col"></th>
+            ${hmUnitHeaderCells}
+          </tr>
+        </thead>
+        <tbody>
+        ${hmDataRows}
+        </tbody>
+      </table>
+      <div class="hm-legend">
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-0-35"></div>Pagado ≤35 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-36-60"></div>Pagado 36–60 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-61-90"></div>Pagado 61–90 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-paid-90plus"></div>Pagado +90 días</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-pending"></div>Facturas pendientes</div>
+        <div class="hm-legend-item"><div class="hm-legend-swatch hm-c-none"></div>Sin facturas</div>
+      </div>`
+      : '<p class="no-data">Sin datos históricos disponibles.</p>';
+
+    // ── Category table HTML (built server-side) ──────────────────────────────
+    const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
+    const categoryTableHtml = expensesByCategory.length > 0
+      ? `<table class="vendor-table" style="margin-top:16px">
+          <thead>
+            <tr>
+              <th>Categoría</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expensesByCategory.map(c =>
+              `<tr><td>${this.esc(c.categoryName)}</td><td class="amount-col">$${fmt(c.amount)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(categoryTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '';
+
+    // ── Vendor table HTML (built server-side) ────────────────────────────────
+    const vendorTotal = expensesByVendor.reduce((s, v) => s + v.amount, 0);
+    const vendorTableHtml = expensesByVendor.length > 0
+      ? `<table class="vendor-table">
+          <thead>
+            <tr>
+              <th>Suplidor</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expensesByVendor.map(v =>
+              `<tr><td>${this.esc(v.vendorName)}</td><td class="amount-col">$${fmt(v.amount)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(vendorTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : `<p class="no-data">Sin gastos en el período.</p>`;
+
+    // ── Cash flow table HTML (built server-side) ─────────────────────────────
+    const cfTotalIn  = cashFlowEntries
+      .filter(e => e.type === 'payment')
+      .reduce((s, e) => s + e.amount, 0);
+    const cfTotalOut = cashFlowEntries
+      .filter(e => e.type === 'expense')
+      .reduce((s, e) => s + e.amount, 0);
+    const cfResult   = cfTotalIn - cfTotalOut;
+    const cfResultSign = cfResult >= 0 ? '+' : '−';
+
+    /** Format a YYYY-MM-DD date string as a single dd/mm/yyyy line */
+    const fmtDate1 = (dateStr: string): string => {
+      if (!dateStr) return '';
+      const parts = dateStr.split('-');
+      if (parts.length < 3) return dateStr;
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    };
+
+    const cfRowsHtml = cashFlowEntries.length > 0
+      ? cashFlowEntries.map(entry => {
+          const isIn = entry.type === 'payment';
+          const icon = isIn
+            ? `<span class="cf-icon cf-icon--in">${HoaReportGenerator.ICON_CASH_IN}</span>`
+            : `<span class="cf-icon cf-icon--out">${HoaReportGenerator.ICON_CASH_OUT}</span>`;
+          const amountStr = isIn
+            ? `<span class="cf-amount cf-amount--in">+$${fmt(entry.amount)}</span>`
+            : `<span class="cf-amount cf-amount--out">−$${fmt(entry.amount)}</span>`;
+          const subLineHtml = entry.subLine
+            ? `<div class="cf-subline">${this.esc(entry.subLine)}</div>`
+            : '';
+          const subLine2Html = entry.subLine2
+            ? `<div class="cf-subline">${this.esc(entry.subLine2)}</div>`
+            : '';
+          const numberSecondLine = entry.number
+            ? `<div class="cf-num-secondary">${this.esc(entry.number)}</div>`
+            : '';
+          return `<tr>
+            <td class="cf-icon-cell">${icon}</td>
+            <td class="cf-date-cell">${this.esc(fmtDate1(entry.date))}${numberSecondLine}</td>
+            <td>${this.esc(entry.name)}${subLineHtml}${subLine2Html}</td>
+            <td class="cf-amount-cell">${amountStr}</td>
+          </tr>`;
+        }).join('\n          ')
+      : `<tr><td colspan="4" class="no-data">Sin movimientos en el período.</td></tr>`;
+
+    const cashFlowHtml = `
+    <table class="cf-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Fecha / Número</th>
+          <th>Descripción</th>
+          <th class="cf-amount-cell">Monto</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cfRowsHtml}
+        <tr class="cf-totals-row">
+          <td colspan="3" class="cf-total-label">Total de Pagos Recibidos</td>
+          <td class="cf-amount-cell cf-total-in">+$${fmt(cfTotalIn)}</td>
+        </tr>
+        <tr class="cf-totals-row">
+          <td colspan="3" class="cf-total-label">Total de Pagos Realizados</td>
+          <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__label">Resultado del Período</div>
+      <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
+    </div>
+    <div class="chart-section" style="margin-top: 28px;">
+      <div class="section-title">Balance Diario en Banco según Registros</div>
+      <canvas id="chart-cf-daily" width="680" height="250"></canvas>
+    </div>
+    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__left">
+        <div class="cf-result-card__label">Balance en Banco</div>
+        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+      </div>
+      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
+    </div>`;
 
     return `<!DOCTYPE html>
 <html lang="es">
@@ -294,7 +664,7 @@ class HoaReportGenerator {
   <title>${this.esc(title)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 24px; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 8px; }
 
     /* ── Header ── */
     .report-header {
@@ -382,11 +752,172 @@ class HoaReportGenerator {
     }
 
     /* ── Chart wrapper ── */
-    .chart-section { margin-bottom: 40px; }
+    .chart-section { margin-bottom: 16px; }
     .chart-section canvas { display: block; margin: 0 auto; }
 
     /* ── No data ── */
     .no-data { color: #9ca3af; font-size: 13px; text-align: center; padding: 24px 0; }
+
+    /* ── Análisis de Gastos page ── */
+    .expense-analysis-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      align-items: start;
+    }
+    .expense-analysis-cols canvas { display: block; margin: 0 auto; }
+
+    /* Vendor summary table */
+    .vendor-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .vendor-table th,
+    .vendor-table td {
+      padding: 7px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+    .vendor-table th {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7280;
+      background: #f9fafb;
+    }
+    .vendor-table tfoot td {
+      font-weight: 700;
+      border-top: 2px solid #1e2d3d;
+      border-bottom: none;
+    }
+    .vendor-table .amount-col { text-align: right; }
+    .total-label { font-size: 12px; }
+
+    /* ── Flujo de Efectivo page ── */
+    .cf-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .cf-table th,
+    .cf-table td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #e5e7eb;
+      vertical-align: top;
+    }
+    .cf-table th {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: #6b7280;
+      background: #f9fafb;
+      white-space: nowrap;
+    }
+    .cf-icon-cell { width: 26px; text-align: center; padding-top: 7px; }
+    .cf-icon { display: inline-block; width: 18px; height: 18px; }
+    .cf-icon--in  { color: #16a34a; }
+    .cf-icon--out { color: #dc2626; }
+    .cf-date-cell { white-space: nowrap; font-size: 11px; }
+    .cf-num-secondary { font-size: 10px; color: #6b7280; margin-top: 1px; }
+    .cf-subline   { font-size: 10px; color: #6b7280; margin-top: 2px; }
+    .cf-amount-cell { text-align: right; white-space: nowrap; font-size: 12px; }
+    .cf-amount { font-weight: 600; }
+    .cf-amount--in  { color: #16a34a; }
+    .cf-amount--out { color: #dc2626; }
+    .cf-totals-row td {
+      font-weight: 700;
+      border-bottom: none;
+      background: #f9fafb;
+    }
+    .cf-totals-row:first-of-type td { border-top: 2px solid #1e2d3d; }
+    .cf-total-label { font-size: 12px; }
+    .cf-total-in  { color: #16a34a; }
+    .cf-total-out { color: #dc2626; }
+    /* ── Period result card ── */
+    .cf-result-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding: 14px 20px;
+      border-radius: 8px;
+      color: #fff;
+    }
+    .cf-result-card--pos { background: #16a34a; }
+    .cf-result-card--neg { background: #dc2626; }
+    .cf-result-card__left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .cf-result-card__label {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      opacity: 0.9;
+    }
+    .cf-result-card__sub {
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.8;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .cf-result-card__amount {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Comportamiento Histórico de Pagos — landscape heatmap ── */
+    @page heatmap-ls { size: A4 landscape; margin: 0.5cm 0.5cm 1cm; }
+    .page-heatmap { page: heatmap-ls; }
+
+    .heatmap-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-size: 10px;
+    }
+    .heatmap-table th,
+    .heatmap-table td {
+      border: 1px solid #e5e7eb;
+      text-align: center;
+      vertical-align: middle;
+      overflow: hidden;
+      white-space: nowrap;
+    }
+    /* Month-label first column */
+    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #374151; background: #f9fafb; }
+    /* Group header row */
+    .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
+    /* Unit header row */
+    .hm-unit-hdr { font-size: 8px; font-weight: 600; color: #6b7280; background: #f3f4f6; padding: 4px 2px; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; height: 40px; vertical-align: bottom; }
+    /* Group divider — left border on the first column of every client group */
+    .hm-group-first { border-left: 2px solid #ffffff !important; }
+    /* Data cells */
+    .hm-cell { height: 16px; padding: 0; }
+    .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
+    .hm-c-paid-36-60  { background: #86efac; }   /* light green    36-60 d */
+    .hm-c-paid-61-90  { background: #bef264; }   /* yellow-green   61-90 d */
+    .hm-c-paid-90plus { background: #fde047; }   /* yellow          >90 d  */
+    .hm-c-pending     { background: #fdba74; }   /* light orange — pending */
+    .hm-c-none        { background: #f3f4f6; }   /* light grey  — no invs  */
+    /* Heatmap legend */
+    .hm-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 10px;
+      font-size: 9px;
+      color: #374151;
+    }
+    .hm-legend-item { display: flex; align-items: center; gap: 4px; }
+    .hm-legend-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #d1d5db; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -418,7 +949,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
-      ? '<canvas id="chart-payments" width="680" height="320"></canvas>'
+      ? '<canvas id="chart-payments" width="680" height="220"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
@@ -426,8 +957,101 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
-      ? '<canvas id="chart-ar" width="680" height="320"></canvas>'
+      ? '<canvas id="chart-ar" width="680" height="220"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
+  </div>
+
+  <!-- ── Página 2: Comportamiento Histórico de Pagos (landscape) ── -->
+  <div class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Comportamiento Histórico de Pagos</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+    ${heatmapHtml}
+  </div>
+
+  <!-- ── Página 3: Análisis de Gastos ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Gastos</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: doughnut chart of expense categories -->
+      <div>
+        <div class="section-title">Categoría de Gastos en el Período</div>
+        ${expensesByCategory.length > 0
+          ? '<canvas id="chart-expense-cat" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin gastos en el período.</p>'}
+        ${categoryTableHtml}
+      </div>
+      <!-- Right column: vendor expense table -->
+      <div>
+        <div class="section-title">Gastos por Suplidor</div>
+        ${vendorTableHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Página 4: Análisis de Cuentas x Cobrar ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Cuentas x Cobrar</h1>
+      <div class="meta">Al ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: donut chart by group + group summary table + aging table -->
+      <div>
+        <div class="section-title">CxC por Grupo de Cliente</div>
+        ${arByGroup.length > 0
+          ? '<canvas id="chart-ar-donut" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>'}
+        ${arGroupTableHtml}
+        ${arByGroup.length > 0 ? '<div class="section-title" style="margin-top:16px">Saldo por Antigüedad de Emisión</div>' : ''}
+        ${arAgingTableHtml}
+      </div>
+      <!-- Right column: per-client breakdown table -->
+      <div>
+        <div class="section-title">Desglose por Cliente</div>
+        ${arClientTableHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Página 5: Análisis de Cuentas x Pagar ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Análisis de Cuentas x Pagar</h1>
+      <div class="meta">Al ${this.esc(periodEnd)}</div>
+    </div>
+
+    <div class="expense-analysis-cols">
+      <!-- Left column: donut chart by aging + aging breakdown table -->
+      <div>
+        <div class="section-title">CxP por Antigüedad de Emisión</div>
+        ${apHasData
+          ? '<canvas id="chart-ap-donut" width="320" height="320"></canvas>'
+          : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>'}
+        ${apHasData ? '<div class="section-title" style="margin-top:16px">Saldo por Antigüedad de Emisión</div>' : ''}
+        ${apAgingTableHtml}
+      </div>
+      <!-- Right column: per-vendor breakdown table -->
+      <div>
+        <div class="section-title">Desglose por Suplidor</div>
+        ${apVendorTableHtml}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Página 6: Flujo de Efectivo ── -->
+  <div style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Flujo de Efectivo</h1>
+      <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+    ${cashFlowHtml}
   </div>
 
   <!-- ── Chart.js (inlined) ── -->
@@ -514,6 +1138,111 @@ class HoaReportGenerator {
 
     buildPaymentsChart('chart-payments', ${paymentsLabels}, ${payments0_35}, ${payments36_95}, ${payments96plus});
     buildArChart('chart-ar', ${arGroupLabels}, ${arUnitDatasets});
+
+    /* ── Expense category doughnut ── */
+    function buildExpenseCatDoughnut(canvasId, labels, amounts, colors) {
+      var el = document.getElementById(canvasId);
+      if (!el) return;
+      new Chart(el, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: amounts,
+            backgroundColor: colors,
+            borderColor: '#fff',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: false,
+          animation:  false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: { font: { size: 10 }, padding: 10, boxWidth: 12 }
+            },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  return item.label + ': $' + item.parsed.toLocaleString('en-US', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                  });
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    buildExpenseCatDoughnut('chart-expense-cat', ${expCatLabels}, ${expCatAmounts}, ${expCatColors});
+
+    /* ── AR by-group doughnut (Análisis de CxC page) ── */
+    buildExpenseCatDoughnut('chart-ar-donut', ${arGroupDoughnutLabels}, ${arGroupDoughnutAmounts}, ${arGroupDoughnutColors});
+
+    /* ── AP by-aging doughnut (Análisis de CxP page) ── */
+    buildExpenseCatDoughnut('chart-ap-donut', ${apDoughnutLabels}, ${apDoughnutAmounts}, ${apDoughnutColors});
+
+    /* ── Daily bank-balance line chart (Flujo de Efectivo page) ── */
+    function buildCfLineChart(canvasId, dates, balance) {
+      var el = document.getElementById(canvasId);
+      if (!el) return;
+      new Chart(el, {
+        type: 'line',
+        data: {
+          labels: dates,
+          datasets: [
+            {
+              label: 'Balance en Banco',
+              data: balance,
+              borderColor: '#2563eb',
+              backgroundColor: 'rgba(37,99,235,0.08)',
+              borderWidth: 2,
+              pointRadius: 0,
+              fill: true,
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          responsive: false,
+          animation:  false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  return 'Balance: $' + item.parsed.y.toLocaleString('en-US', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                  });
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                autoSkip: false,
+                maxRotation: 90,
+                minRotation: 90,
+                font: { size: 9 }
+              }
+            },
+            y: {
+              ticks: {
+                callback: function (v) {
+                  return '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    buildCfLineChart('chart-cf-daily', ${cfDailyDates}, ${cfDailyBalance});
 
     window.chartsReady = true;
   }());

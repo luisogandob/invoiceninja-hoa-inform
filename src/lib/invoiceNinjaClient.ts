@@ -33,6 +33,8 @@ interface ApiResponse<T> {
  */
 export interface Expense {
   id?: string;
+  /** Expense document number assigned by Invoice Ninja (e.g. "EXP-0001") */
+  number?: string;
   amount: number;
   date?: string;
   expense_date?: string;
@@ -45,6 +47,8 @@ export interface Expense {
   vendor_id?: string;
   /** Invoice Ninja expense category ID (foreign key to expense_categories endpoint) */
   category_id?: string;
+  /** Invoice Ninja client ID linked to this expense */
+  client_id?: string;
   /** True when the record has been soft-deleted in Invoice Ninja */
   is_deleted?: boolean;
   public_notes?: string;
@@ -57,6 +61,7 @@ export interface Expense {
   category?: {
     name: string;
   };
+  client_name?: string;
 }
 
 /**
@@ -146,6 +151,7 @@ export interface Invoice {
  */
 export interface Payment {
   id?: string;
+  number?: string;
   amount: number;
   date?: string;
   payment_date?: string;

@@ -152,7 +152,8 @@ class HOAInformAutomation {
       try {
         const {
           allInvoices, periodInvoices, periodPayments,
-          periodExpenses, allExpenses, allClients, clientGroups
+          periodExpenses, allExpenses, allClients, clientGroups,
+          allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
         } = result;
 
         allInvoicesRef = allInvoices;
@@ -170,7 +171,11 @@ class HOAInformAutomation {
           dateRange.start,
           dateRange.end,
           reportTitle,
-          new Date()
+          new Date(),
+          allTimePaymentsTotal,
+          allTimeExpensesPaidTotal,
+          parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
+          invoiceLastPaymentDate
         );
       } finally {
         db.close();
@@ -268,7 +273,8 @@ class HOAInformAutomation {
       try {
         const {
           allInvoices, periodInvoices, periodPayments,
-          periodExpenses, allExpenses, allClients, clientGroups
+          periodExpenses, allExpenses, allClients, clientGroups,
+          allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
         } = result;
 
         allInvoicesForStats  = allInvoices;
@@ -295,7 +301,11 @@ class HOAInformAutomation {
           dateRange.start,
           dateRange.end,
           reportTitle,
-          new Date()
+          new Date(),
+          allTimePaymentsTotal,
+          allTimeExpensesPaidTotal,
+          parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
+          invoiceLastPaymentDate
         );
       } finally {
         db.close();
