@@ -311,6 +311,7 @@ class HoaReportGenerator {
     const arGroupDoughnutColors  = JSON.stringify(arByGroup.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
 
     // ── AR by-group table HTML (Análisis de CxC — left column) ──────────────
+    // No tfoot here — single grand total is rendered below the two-column layout.
     const arGroupTotal = arByGroup.reduce((s, g) => s + g.balance, 0);
     const arGroupTableHtml = arByGroup.length > 0
       ? `<table class="vendor-table" style="margin-top:16px">
@@ -325,16 +326,11 @@ class HoaReportGenerator {
               `<tr><td>${this.esc(g.groupName)}</td><td class="amount-col">$${fmt(g.balance)}</td></tr>`
             ).join('\n            ')}
           </tbody>
-          <tfoot>
-            <tr>
-              <td class="total-label">Total</td>
-              <td class="amount-col">$${fmt(arGroupTotal)}</td>
-            </tr>
-          </tfoot>
         </table>`
       : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
 
     // ── AR by-client table HTML (Análisis de CxC — right column) ────────────
+    // No tfoot here — single grand total is rendered below the two-column layout.
     const arClientTotal   = arByClient.reduce((s, c) => s + c.balance, 0);
     const arClientTotalInvoices = arByClient.reduce((s, c) => s + c.invoiceCount, 0);
     const arClientTableHtml = arByClient.length > 0
@@ -357,15 +353,21 @@ class HoaReportGenerator {
               </tr>`
             ).join('\n            ')}
           </tbody>
+        </table>`
+      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+
+    // ── AR grand-total row (shown once at the end of the CxC page) ───────────
+    const arCxcGrandTotalHtml = arByClient.length > 0
+      ? `<table class="vendor-table" style="margin-top:0">
           <tfoot>
             <tr>
-              <td class="total-label" colspan="2">Total</td>
-              <td class="amount-col">${arClientTotalInvoices}</td>
+              <td class="total-label" colspan="3">Total</td>
+              <td class="amount-col">${arClientTotalInvoices} factura${arClientTotalInvoices !== 1 ? 's' : ''}</td>
               <td class="amount-col">$${fmt(arClientTotal)}</td>
             </tr>
           </tfoot>
         </table>`
-      : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>';
+      : '';
 
     // ── Category table HTML (built server-side) ──────────────────────────────
     const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
@@ -798,6 +800,7 @@ class HoaReportGenerator {
         ${arClientTableHtml}
       </div>
     </div>
+    ${arCxcGrandTotalHtml}
   </div>
 
   <!-- ── Página 4: Flujo de Efectivo ── -->
