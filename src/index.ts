@@ -34,6 +34,11 @@ function readCompanyInfo(): CompanyInfo {
  */
 function readDocsMarkdown(): string {
   const docsPath = process.env.REPORT_DOCS_PATH || './report-docs.md';
+  // Restrict to Markdown files to prevent accidental reads of sensitive files.
+  if (!docsPath.toLowerCase().endsWith('.md')) {
+    console.warn(`[readDocsMarkdown] REPORT_DOCS_PATH must end with ".md". Ignoring: "${docsPath}"`);
+    return '';
+  }
   try {
     return readFileSync(docsPath, 'utf-8');
   } catch {

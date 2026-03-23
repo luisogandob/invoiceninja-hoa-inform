@@ -186,30 +186,48 @@ class HoaReportGenerator {
    * Returns undefined if the logo cannot be loaded (logs a warning).
    */
   private async fetchLogoAsDataUri(url: string): Promise<string | undefined> {
-    try {
-      // Already a data URI — pass through
-      if (url.startsWith('data:')) return url;
+    /** Allowed image MIME types for the logo */
+    const ALLOWED_IMAGE_MIMES = new Set([
+      'image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'
+    ]);
+    const ALLOWED_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']);
 
-      // Local file path
+    try {
+      // Already a data URI — validate it is an image type
+      if (url.startsWith('data:')) {
+        const mime = url.slice(5, url.indexOf(';'));
+        return ALLOWED_IMAGE_MIMES.has(mime) ? url : undefined;
+      }
+
+      // Local file path — restrict to allowed image extensions
       if (existsSync(url)) {
+        const ext = url.toLowerCase().split('.').pop() ?? '';
+        if (!ALLOWED_IMAGE_EXTS.has(ext)) {
+          console.warn(`[HoaReportGenerator] Rejected logo path with disallowed extension: "${url}"`);
+          return undefined;
+        }
         const buf = readFileSync(url);
-        const ext = url.toLowerCase().split('.').pop() ?? 'png';
         const mimeMap: Record<string, string> = {
           png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
           gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp'
         };
-        const mime = mimeMap[ext] ?? 'image/png';
+        const mime = mimeMap[ext]!;
         return `data:${mime};base64,${buf.toString('base64')}`;
       }
 
-      // HTTP / HTTPS URL
+      // HTTP / HTTPS URL — cap response at 5 MB and validate content type
       if (url.startsWith('http://') || url.startsWith('https://')) {
         const response = await axios.get<ArrayBuffer>(url, {
           responseType: 'arraybuffer',
-          timeout: 8_000
+          timeout: 8_000,
+          maxContentLength: 5 * 1024 * 1024
         });
-        const ct = (response.headers['content-type'] as string | undefined) ?? 'image/png';
+        const ct = (response.headers['content-type'] as string | undefined) ?? '';
         const mime = ct.split(';')[0].trim();
+        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+          console.warn(`[HoaReportGenerator] Rejected logo URL with disallowed content-type "${mime}": "${url}"`);
+          return undefined;
+        }
         const base64 = Buffer.from(response.data).toString('base64');
         return `data:${mime};base64,${base64}`;
       }
@@ -226,6 +244,9 @@ class HoaReportGenerator {
    * Convert a basic subset of Markdown to HTML.
    * Supports: h1/h2/h3, **bold**, *italic*, `code`, unordered and ordered lists,
    * blank-line paragraph breaks, and horizontal rules (---).
+   *
+   * Text content is HTML-escaped before applying inline formatting, so raw
+   * HTML in the Markdown source is rendered as text rather than executed.
    */
   private static parseMarkdown(md: string): string {
     const lines = md.split('\n');
@@ -237,11 +258,19 @@ class HoaReportGenerator {
     const closeOl = () => { if (inOl) { html.push('</ol>'); inOl = false; } };
     const closeLists = () => { closeUl(); closeOl(); };
 
-    const inline = (text: string): string =>
-      text
+    /** Escape HTML special characters to prevent injection */
+    const esc = (t: string): string =>
+      t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+    /** Apply inline Markdown formatting to already-escaped text */
+    const inline = (text: string): string => {
+      const escaped = esc(text);
+      return escaped
         .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.+?)\*/g, '<em>$1</em>')
         .replace(/`(.+?)`/g, '<code>$1</code>');
+    };
 
     for (const line of lines) {
       if (line.startsWith('### ')) {
@@ -319,6 +348,9 @@ class HoaReportGenerator {
       companyInfo,
       docsMarkdown
     } = data;
+
+    // Validate that the logo data URI is safe to embed (must be an image type)
+    const safeLogoDataUri = logoDataUri?.startsWith('data:image/') ? logoDataUri : undefined;
 
     const fmt = (n: number) =>
       n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1189,8 +1221,8 @@ class HoaReportGenerator {
   <!-- ══ Página 0: Portada ══ -->
   <div class="page-cover">
     <div class="cover-logo">
-      ${logoDataUri
-        ? `<img src="${logoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}">`
+      ${safeLogoDataUri
+        ? `<img src="${safeLogoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}">`
         : `<div class="cover-logo-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#9ca3af" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`
       }
     </div>
@@ -1371,7 +1403,7 @@ class HoaReportGenerator {
 
   <!-- ══ Página de Cierre ══ -->
   <div id="sec-cierre" class="page-closing">
-    ${logoDataUri ? `<div class="closing-logo"><img src="${logoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}"></div>` : ''}
+    ${safeLogoDataUri ? `<div class="closing-logo"><img src="${safeLogoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}"></div>` : ''}
     ${companyInfo?.name ? `<div class="closing-company-name">${this.esc(companyInfo.name)}</div>` : ''}
     ${companyInfo?.rnc     ? `<div class="closing-detail">RNC: ${this.esc(companyInfo.rnc)}</div>` : ''}
     ${companyInfo?.website ? `<div class="closing-detail">${this.esc(companyInfo.website)}</div>` : ''}
