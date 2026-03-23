@@ -2,7 +2,7 @@
 
 ## Cómo leer este informe
 
-Este informe financiero es generado automáticamente a partir de los datos registrados en **Invoice Ninja**. Está estructurado en secciones que cubren los principales indicadores de gestión de la comunidad.
+Este informe financiero es generado automáticamente a partir de los datos registrados en el Sistema Administrativo. Está estructurado en secciones que cubren los principales indicadores de gestión de la comunidad.
 
 ---
 
@@ -73,5 +73,5 @@ Presenta todos los movimientos de efectivo del período en orden cronológico:
 
 ---
 
-*Este informe es generado automáticamente por el sistema InvoiceNinja HOA Inform.*
-*Para personalizar esta documentación, edite el archivo `report-docs.md` en el directorio del proyecto.*
+*Este informe es generado automáticamente por el sistema administrativo.*
+*Si identifica algun error en el informe o requiere alguna aclaracion por favor escribanos a adm@residencialqvh.net.*
