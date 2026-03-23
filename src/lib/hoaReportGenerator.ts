@@ -297,6 +297,30 @@ class HoaReportGenerator {
     const expCatAmounts = JSON.stringify(expensesByCategory.map(e => e.amount));
     const expCatColors  = JSON.stringify(expensesByCategory.map((_, i) => doughnutPalette[i % doughnutPalette.length]));
 
+    // ── Category table HTML (built server-side) ──────────────────────────────
+    const categoryTotal = expensesByCategory.reduce((s, c) => s + c.amount, 0);
+    const categoryTableHtml = expensesByCategory.length > 0
+      ? `<table class="vendor-table" style="margin-top:16px">
+          <thead>
+            <tr>
+              <th>Categoría</th>
+              <th class="amount-col">Monto</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${expensesByCategory.map(c =>
+              `<tr><td>${this.esc(c.categoryName)}</td><td class="amount-col">$${fmt(c.amount)}</td></tr>`
+            ).join('\n            ')}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label">Total</td>
+              <td class="amount-col">$${fmt(categoryTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>`
+      : '';
+
     // ── Vendor table HTML (built server-side) ────────────────────────────────
     const vendorTotal = expensesByVendor.reduce((s, v) => s + v.amount, 0);
     const vendorTableHtml = expensesByVendor.length > 0
@@ -515,6 +539,7 @@ class HoaReportGenerator {
         ${expensesByCategory.length > 0
           ? '<canvas id="chart-expense-cat" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin gastos en el período.</p>'}
+        ${categoryTableHtml}
       </div>
       <!-- Right column: vendor expense table -->
       <div>
