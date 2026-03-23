@@ -834,16 +834,16 @@ class HoaReportGenerator {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 14px;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
     }
     .kpi-row2 {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 14px;
-      margin-bottom: 36px;
+      margin-bottom: 12px;
     }
     .kpi-item {
-      padding: 14px 16px;
+      padding: 10px 12px;
       border: 1px solid #e5e7eb;
       border-top: 3px solid #e5e7eb;
     }
@@ -854,7 +854,7 @@ class HoaReportGenerator {
     .kpi-sky    { border-top-color: #0284c7; }
     .kpi-violet { border-top-color: #7c3aed; }
     /* icon colors */
-    .kpi-icon { display: block; width: 24px; height: 24px; margin-bottom: 8px; }
+    .kpi-icon { display: block; width: 22px; height: 22px; margin-bottom: 4px; }
     .kpi-blue .kpi-icon   { color: #1d4ed8; }
     .kpi-green .kpi-icon  { color: #16a34a; }
     .kpi-amber .kpi-icon  { color: #b45309; }
@@ -868,10 +868,11 @@ class HoaReportGenerator {
       text-transform: uppercase;
       color: #6b7280;
       line-height: 1.5;
-      margin-bottom: 6px;
+      margin-bottom: 3px;
+      white-space: nowrap;
     }
     .kpi-value {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
       color: #111827;
       letter-spacing: -0.5px;
@@ -934,16 +935,16 @@ class HoaReportGenerator {
 
     /* ── Section titles ── */
     .section-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: #1e2d3d;
-      margin-bottom: 14px;
-      padding-bottom: 6px;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
       border-bottom: 2px solid #1e2d3d;
     }
 
     /* ── Chart wrapper ── */
-    .chart-section { margin-bottom: 16px; }
+    .chart-section { margin-bottom: 10px; }
     .chart-section canvas { display: block; margin: 0 auto; }
 
     /* ── No data ── */
@@ -1334,27 +1335,27 @@ class HoaReportGenerator {
 
   <!-- ── Row 1: Operational KPIs ── -->
   <div class="kpi-row1">
-    ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
-    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
+    ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
+    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
       cobranzaPct !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} % Cobranza: ${this.esc(cobranzaPct)}%</div>` : undefined)}
-    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
+    ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
       `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} $${fmt(totalExpensesPaidInPeriod)} pagado en el período.</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
   <div class="kpi-row2">
-    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
+    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
       arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +90d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
     ${/* apAtPeriodEnd/Start are 0 (AP not yet integrated); check makes the widget
          show real data automatically once the Bills module is added and populates them */''}
-    ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas', 'por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
+    ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group (stacked by aging) ── -->
   <div class="chart-section">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
-      ? '<canvas id="chart-payments" width="680" height="220"></canvas>'
+      ? '<canvas id="chart-payments" width="680" height="185"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
@@ -1362,7 +1363,7 @@ class HoaReportGenerator {
   <div class="chart-section">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
-      ? '<canvas id="chart-ar" width="680" height="220"></canvas>'
+      ? '<canvas id="chart-ar" width="680" height="185"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
