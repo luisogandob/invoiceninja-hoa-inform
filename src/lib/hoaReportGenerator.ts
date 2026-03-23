@@ -645,6 +645,10 @@ class HoaReportGenerator {
       <div class="cf-result-card__label">Resultado del Período</div>
       <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
     </div>
+    <div class="chart-section" style="margin-top: 28px;">
+      <div class="section-title">Balance Diario en Banco según Registros</div>
+      <canvas id="chart-cf-daily" width="680" height="250"></canvas>
+    </div>
     <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
       <div class="cf-result-card__left">
         <div class="cf-result-card__label">Balance en Banco</div>
@@ -1048,10 +1052,6 @@ class HoaReportGenerator {
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
     </div>
     ${cashFlowHtml}
-    <div class="chart-section" style="margin-top: 28px;">
-      <div class="section-title">Balance Diario en Banco según Registros</div>
-      <canvas id="chart-cf-daily" width="680" height="250"></canvas>
-    </div>
   </div>
 
   <!-- ── Chart.js (inlined) ── -->
