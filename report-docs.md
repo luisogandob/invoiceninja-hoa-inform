@@ -4,8 +4,6 @@
 
 Este informe financiero es generado automáticamente a partir de los datos registrados en el Sistema Administrativo. Está estructurado en secciones que cubren los principales indicadores de gestión de la comunidad.
 
----
-
 ## 1. Resumen Ejecutivo
 
 Presenta los indicadores financieros más importantes del período seleccionado:
@@ -15,8 +13,6 @@ Presenta los indicadores financieros más importantes del período seleccionado:
 - **Gastos del Período**: Total de gastos registrados en Invoice Ninja durante el período. La línea secundaria muestra el monto efectivamente pagado (con fecha de pago) en el mismo período.
 - **Total Cuentas por Cobrar (CxC)**: Saldo pendiente de cobro a residentes al cierre del período. La flecha indica si aumentó (▲) o disminuyó (▼) en comparación con el inicio del período.
 - **Total Cuentas por Pagar (CxP)**: Obligaciones pendientes de pago a suplidores al cierre del período.
-
----
 
 ## 2. Comportamiento Histórico de Pagos
 
@@ -31,16 +27,12 @@ Mapa de calor (heatmap) que muestra el historial de pago de cada unidad de vivie
 - **Naranja claro** — Facturas pendientes (sin pagar)
 - **Gris claro** — Sin facturas emitidas para ese mes/unidad
 
----
-
 ## 3. Análisis de Gastos
 
 Muestra los gastos del período agrupados por **categoría** (gráfico de donut) y por **suplidor** (tabla).
 
 - El gráfico de donut ilustra la proporción de cada categoría dentro del total de gastos del período.
 - La tabla de suplidores lista a quiénes se les pagó y cuánto.
-
----
 
 ## 4. Análisis de Cuentas x Cobrar
 
@@ -51,16 +43,12 @@ Detalla las cuentas pendientes de cobro al cierre del período.
   - 1–30 días, 31–60 días, 61–90 días, más de 90 días.
 - **Desglose por Cliente**: Lista individual de residentes con saldo pendiente, ordenados de mayor a menor monto.
 
----
-
 ## 5. Análisis de Cuentas x Pagar
 
 Muestra las cuentas pendientes de pago a suplidores al cierre del período:
 
 - **CxP por Antigüedad de Emisión**: Clasifica el saldo pendiente según hace cuántos días se registró el gasto.
 - **Desglose por Suplidor**: Lista de suplidores con balance pendiente.
-
----
 
 ## 6. Flujo de Efectivo
 
