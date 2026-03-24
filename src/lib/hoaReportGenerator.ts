@@ -1121,7 +1121,7 @@ class HoaReportGenerator {
       align-items: center;
       justify-content: center;
       text-align: center;
-      min-height: calc(297mm - 3cm);
+      height: 267mm;
       padding: 40px 48px;
       background: #f8fafc;
     }
@@ -1246,7 +1246,7 @@ class HoaReportGenerator {
       justify-content: center;
       text-align: center;
       padding: 60px 48px;
-      min-height: calc(297mm - 3cm);
+      height: 267mm;
       background: #f8fafc;
     }
     .closing-logo img {
