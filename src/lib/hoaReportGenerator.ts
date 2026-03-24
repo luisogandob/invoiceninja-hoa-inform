@@ -817,7 +817,7 @@ class HoaReportGenerator {
   <title>${this.esc(title)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 8px; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 0; }
 
     /* ── Header ── */
     .report-header {
@@ -1205,6 +1205,13 @@ class HoaReportGenerator {
       text-decoration: none;
     }
     .toc-list a:hover { text-decoration: underline; }
+    .toc-sub {
+      padding: 5px 0 5px 28px;
+      font-size: 11.5px;
+      color: #6b7280;
+      border-bottom: 1px dotted #e5e7eb;
+    }
+    .toc-sub .toc-num { color: #9ca3af; font-weight: 400; min-width: 20px; }
 
     /* ── Documentation page ── */
     .page-docs { page-break-before: always; padding-top: 4px; }
@@ -1302,10 +1309,19 @@ class HoaReportGenerator {
     </div>
     <ul class="toc-list">
       <li><span class="toc-num">1.</span><span class="toc-title"><a href="#sec-resumen">Resumen Ejecutivo</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sec-resumen">Indicadores del Período</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-pagos">Pagos Recibidos por Grupo de Clientes</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-cxc">CxC al Final del Período por Unidad Vivienda</a></span></li>
       <li><span class="toc-num">2.</span><span class="toc-title"><a href="#sec-heatmap">Comportamiento Histórico de Pagos</a></span></li>
       <li><span class="toc-num">3.</span><span class="toc-title"><a href="#sec-gastos">Análisis de Gastos</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-cat">Categoría de Gastos en el Período</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-suplidor">Gastos por Suplidor</a></span></li>
       <li><span class="toc-num">4.</span><span class="toc-title"><a href="#sec-cxc">Análisis de Cuentas x Cobrar</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-grupo">CxC por Grupo de Cliente</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-cliente">Desglose por Cliente</a></span></li>
       <li><span class="toc-num">5.</span><span class="toc-title"><a href="#sec-cxp">Análisis de Cuentas x Pagar</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-aging">CxP por Antigüedad de Emisión</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-suplidor">Desglose por Suplidor</a></span></li>
       <li><span class="toc-num">6.</span><span class="toc-title"><a href="#sec-flujo">Flujo de Efectivo</a></span></li>
       ${docsMarkdown ? `<li><span class="toc-num">7.</span><span class="toc-title"><a href="#sec-docs">Documentación del Informe</a></span></li>` : ''}
     </ul>
@@ -1355,7 +1371,7 @@ class HoaReportGenerator {
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group (stacked by aging) ── -->
-  <div class="chart-section">
+  <div class="chart-section" id="sub-resumen-pagos">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
       ? '<canvas id="chart-payments" width="680" height="240"></canvas>'
@@ -1363,7 +1379,7 @@ class HoaReportGenerator {
   </div>
 
   <!-- ── Bar Chart: AR by Unidad Vivienda (stacked by aging) ── -->
-  <div class="chart-section">
+  <div class="chart-section" id="sub-resumen-cxc">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
       ? '<canvas id="chart-ar" width="680" height="240"></canvas>'
@@ -1391,7 +1407,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: doughnut chart of expense categories -->
       <div>
-        <div class="section-title">Categoría de Gastos en el Período</div>
+        <div class="section-title" id="sub-gastos-cat">Categoría de Gastos en el Período</div>
         ${expensesByCategory.length > 0
           ? '<canvas id="chart-expense-cat" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin gastos en el período.</p>'}
@@ -1399,7 +1415,7 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: vendor expense table -->
       <div>
-        <div class="section-title">Gastos por Suplidor</div>
+        <div class="section-title" id="sub-gastos-suplidor">Gastos por Suplidor</div>
         ${vendorTableHtml}
       </div>
     </div>
@@ -1415,7 +1431,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: donut chart by group + group summary table + aging table -->
       <div>
-        <div class="section-title">CxC por Grupo de Cliente</div>
+        <div class="section-title" id="sub-cxc-grupo">CxC por Grupo de Cliente</div>
         ${arByGroup.length > 0
           ? '<canvas id="chart-ar-donut" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>'}
@@ -1425,7 +1441,7 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: per-client breakdown table -->
       <div>
-        <div class="section-title">Desglose por Cliente</div>
+        <div class="section-title" id="sub-cxc-cliente">Desglose por Cliente</div>
         ${arClientTableHtml}
       </div>
     </div>
@@ -1441,7 +1457,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: donut chart by aging + aging breakdown table -->
       <div>
-        <div class="section-title">CxP por Antigüedad de Emisión</div>
+        <div class="section-title" id="sub-cxp-aging">CxP por Antigüedad de Emisión</div>
         ${apHasData
           ? '<canvas id="chart-ap-donut" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>'}
@@ -1450,7 +1466,7 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: per-vendor breakdown table -->
       <div>
-        <div class="section-title">Desglose por Suplidor</div>
+        <div class="section-title" id="sub-cxp-suplidor">Desglose por Suplidor</div>
         ${apVendorTableHtml}
       </div>
     </div>
