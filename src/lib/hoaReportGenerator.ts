@@ -1123,7 +1123,7 @@ class HoaReportGenerator {
       text-align: center;
       min-height: 267mm;
       padding: 40px 48px;
-      background: #f8fafc;
+      background: #fff;
     }
     .cover-logo {
       margin-bottom: 36px;
@@ -1245,7 +1245,7 @@ class HoaReportGenerator {
       text-align: center;
       padding: 60px 48px;
       min-height: 160mm;
-      background: #f8fafc;
+      background: #fff;
     }
     .closing-logo img {
       max-width: 120px;
