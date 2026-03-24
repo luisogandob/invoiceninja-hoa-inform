@@ -1113,7 +1113,7 @@ class HoaReportGenerator {
     .hm-legend-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #d1d5db; flex-shrink: 0; }
 
     /* ── Cover page ── */
-    @page cover-pg { size: A4 portrait; margin: 0; }
+    @page cover-pg { size: A4 portrait; margin: 1.5cm; }
     .page-cover {
       page: cover-pg;
       display: flex;
@@ -1121,9 +1121,9 @@ class HoaReportGenerator {
       align-items: center;
       justify-content: center;
       text-align: center;
-      min-height: 267mm;
+      min-height: calc(297mm - 3cm);
       padding: 40px 48px;
-      background: #fff;
+      background: #f8fafc;
     }
     .cover-logo {
       margin-bottom: 36px;
@@ -1236,7 +1236,9 @@ class HoaReportGenerator {
     }
 
     /* ── Closing page ── */
+    @page closing-pg { size: A4 portrait; margin: 1.5cm; }
     .page-closing {
+      page: closing-pg;
       page-break-before: always;
       display: flex;
       flex-direction: column;
@@ -1244,8 +1246,8 @@ class HoaReportGenerator {
       justify-content: center;
       text-align: center;
       padding: 60px 48px;
-      min-height: 160mm;
-      background: #fff;
+      min-height: calc(297mm - 3cm);
+      background: #f8fafc;
     }
     .closing-logo img {
       max-width: 120px;
