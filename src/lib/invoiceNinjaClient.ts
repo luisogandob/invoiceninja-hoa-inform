@@ -260,6 +260,8 @@ export interface InvoiceNinjaCompanySettings {
   postal_code?: string;
   /** Phone number */
   phone?: string;
+  /** Company logo URL — Invoice Ninja v5 also exposes it inside settings */
+  company_logo?: string;
 }
 
 /**
@@ -538,11 +540,22 @@ class InvoiceNinjaClient {
       const company: InvoiceNinjaCompany = Array.isArray(raw) ? raw[0] : raw;
       if (!company?.id) return null;
 
+      // IN v5 sometimes puts the logo inside settings.company_logo instead of the root logo field.
+      // Normalise: if root logo is missing, fall back to settings.company_logo.
+      if (!company.logo && company.settings?.company_logo) {
+        company.logo = company.settings.company_logo;
+        console.log('[InvoiceNinjaClient] Logo found in settings.company_logo:', company.logo);
+      }
+
+      // Log what we received to help diagnose missing-logo issues.
+      console.log('[InvoiceNinjaClient] Company profile received — logo:', company.logo ?? '(none)', '| settings.company_logo:', company.settings?.company_logo ?? '(none)');
+
       // If the logo URL is relative and non-empty, resolve it against the IN server base URL.
       if (company.logo && company.logo.length > 0 &&
           !company.logo.startsWith('http') && !company.logo.startsWith('data:')) {
         const base = this.baseURL.replace(/\/+$/, '');
         company.logo = `${base}${company.logo.startsWith('/') ? '' : '/'}${company.logo}`;
+        console.log('[InvoiceNinjaClient] Resolved relative logo URL to:', company.logo);
       }
 
       return company;
