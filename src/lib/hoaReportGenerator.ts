@@ -1098,9 +1098,9 @@ class HoaReportGenerator {
     /* Data cells */
     .hm-cell { height: 16px; padding: 0; }
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
-    .hm-c-paid-36-60  { background: #86efac; }   /* light green    36-60 d */
-    .hm-c-paid-61-90  { background: #bef264; }   /* yellow-green   61-90 d */
-    .hm-c-paid-90plus { background: #a3e635; }   /* lime-green     >90 d  */
+    .hm-c-paid-36-60  { background: #84cc16; }   /* lime-green     36-60 d */
+    .hm-c-paid-61-90  { background: #a3e635; }   /* yellow-lime    61-90 d */
+    .hm-c-paid-90plus { background: #eab308; }   /* yellow          >90 d  */
     .hm-c-pending     { background: #ef4444; }   /* red            — pending */
     .hm-c-none        { background: #f3f4f6; }   /* light grey  — no invs  */
     /* Heatmap legend */
