@@ -537,15 +537,15 @@ class HoaReportGenerator {
               const contactRow = hasContact
                 ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName!)}</td></tr>`
                 : '';
-              const clientRowStyle = hasContact ? ' style="border-bottom:none"' : '';
-              return `<tr${clientRowStyle}>
-                <td>${this.esc(c.clientName)}</td>
-                <td class="amount-col">${c.invoiceCount}</td>
-                <td class="amount-col">$${fmt(c.balance)}</td>
+              const tdStyle = hasContact ? ' style="border-bottom:none"' : '';
+              return `<tr>
+                <td${tdStyle}>${this.esc(c.clientName)}</td>
+                <td class="amount-col"${tdStyle}>${c.invoiceCount}</td>
+                <td class="amount-col"${tdStyle}>$${fmt(c.balance)}</td>
               </tr>${contactRow}`;
             }).join('\n            ')}
           </tbody>
-          <tfoot>
+          <tfoot style="display:table-row-group">
             <tr>
               <td class="total-label">Total</td>
               <td class="amount-col">${arClientTotalInvoices}</td>
