@@ -533,10 +533,12 @@ class HoaReportGenerator {
           </thead>
           <tbody>
             ${arByClient.map(c => {
-              const contactRow = (c.invoiceCount >= 3 && c.contactName)
-                ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName)}</td></tr>`
+              const hasContact = c.invoiceCount >= 3 && !!c.contactName;
+              const contactRow = hasContact
+                ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName!)}</td></tr>`
                 : '';
-              return `<tr>
+              const clientRowStyle = hasContact ? ' style="border-bottom:none"' : '';
+              return `<tr${clientRowStyle}>
                 <td>${this.esc(c.clientName)}</td>
                 <td class="amount-col">${c.invoiceCount}</td>
                 <td class="amount-col">$${fmt(c.balance)}</td>
