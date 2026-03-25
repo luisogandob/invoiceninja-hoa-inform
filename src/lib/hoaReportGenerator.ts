@@ -112,9 +112,11 @@ function getColorData(): Record<string, Record<string, string[]>> {
 class HoaReportGenerator {
   private browser: Browser | null = null;
   private readonly colorScheme: string;
+  private readonly cxcContactMinInvoices: number;
 
   constructor() {
     this.colorScheme = process.env.CHART_COLOR_SCHEME ?? 'brewer.Paired12';
+    this.cxcContactMinInvoices = parseInt(process.env.CXC_CONTACT_MIN_INVOICES ?? '3', 10) || 3;
   }
 
   private async getBrowser(): Promise<Browser> {
@@ -533,7 +535,7 @@ class HoaReportGenerator {
           </thead>
           <tbody>
             ${arByClient.map(c => {
-              const hasContact = c.invoiceCount >= 3 && !!c.contactName;
+              const hasContact = c.invoiceCount >= this.cxcContactMinInvoices && !!c.contactName;
               const contactRow = hasContact
                 ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName!)}</td></tr>`
                 : '';
