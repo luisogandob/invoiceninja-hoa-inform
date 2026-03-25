@@ -218,6 +218,7 @@ class HOAInformAutomation {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups,
           allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
+          primaryContactByClientId,
         } = result;
 
         allInvoicesRef = allInvoices;
@@ -239,7 +240,8 @@ class HOAInformAutomation {
           allTimePaymentsTotal,
           allTimeExpensesPaidTotal,
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
-          invoiceLastPaymentDate
+          invoiceLastPaymentDate,
+          primaryContactByClientId
         );
         reportData.companyInfo  = buildCompanyInfo(db);
         reportData.docsMarkdown = readDocsMarkdown();
@@ -341,6 +343,7 @@ class HOAInformAutomation {
           allInvoices, periodInvoices, periodPayments,
           periodExpenses, allExpenses, allClients, clientGroups,
           allTimePaymentsTotal, allTimeExpensesPaidTotal, invoiceLastPaymentDate,
+          primaryContactByClientId,
         } = result;
 
         allInvoicesForStats  = allInvoices;
@@ -371,7 +374,8 @@ class HOAInformAutomation {
           allTimePaymentsTotal,
           allTimeExpensesPaidTotal,
           parseFloat(process.env.INITIAL_BANK_BALANCE || '0') || 0,
-          invoiceLastPaymentDate
+          invoiceLastPaymentDate,
+          primaryContactByClientId
         );
         reportData.companyInfo  = buildCompanyInfo(db);
         reportData.docsMarkdown = readDocsMarkdown();

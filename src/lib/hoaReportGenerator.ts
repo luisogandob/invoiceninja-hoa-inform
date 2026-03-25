@@ -527,24 +527,25 @@ class HoaReportGenerator {
           <thead>
             <tr>
               <th>Cliente</th>
-              <th>Grupo</th>
               <th class="amount-col"># Facturas</th>
               <th class="amount-col">Monto</th>
             </tr>
           </thead>
           <tbody>
-            ${arByClient.map(c =>
-              `<tr>
+            ${arByClient.map(c => {
+              const contactRow = (c.invoiceCount >= 3 && c.contactName)
+                ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName)}</td></tr>`
+                : '';
+              return `<tr>
                 <td>${this.esc(c.clientName)}</td>
-                <td>${this.esc(c.groupName)}</td>
                 <td class="amount-col">${c.invoiceCount}</td>
                 <td class="amount-col">$${fmt(c.balance)}</td>
-              </tr>`
-            ).join('\n            ')}
+              </tr>${contactRow}`;
+            }).join('\n            ')}
           </tbody>
           <tfoot>
             <tr>
-              <td class="total-label" colspan="2">Total</td>
+              <td class="total-label">Total</td>
               <td class="amount-col">${arClientTotalInvoices}</td>
               <td class="amount-col">$${fmt(arClientTotal)}</td>
             </tr>
@@ -1085,7 +1086,7 @@ class HoaReportGenerator {
       white-space: nowrap;
     }
     /* Month-label first column */
-    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #374151; background: #f9fafb; }
+    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #6b7280; background: #f3f4f6; }
     /* Group header row */
     .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
     /* Unit header row */
@@ -1097,8 +1098,8 @@ class HoaReportGenerator {
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
     .hm-c-paid-36-60  { background: #86efac; }   /* light green    36-60 d */
     .hm-c-paid-61-90  { background: #bef264; }   /* yellow-green   61-90 d */
-    .hm-c-paid-90plus { background: #fde047; }   /* yellow          >90 d  */
-    .hm-c-pending     { background: #fdba74; }   /* light orange — pending */
+    .hm-c-paid-90plus { background: #a3e635; }   /* lime-green     >90 d  */
+    .hm-c-pending     { background: #ef4444; }   /* red            — pending */
     .hm-c-none        { background: #f3f4f6; }   /* light grey  — no invs  */
     /* Heatmap legend */
     .hm-legend {

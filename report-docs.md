@@ -23,8 +23,8 @@ Mapa de calor (heatmap) que muestra el historial de pago de cada unidad de vivie
 - **Verde oscuro** — Pagado en ≤ 35 días desde la emisión
 - **Verde claro** — Pagado entre 36 y 60 días
 - **Amarillo-verde** — Pagado entre 61 y 90 días
-- **Amarillo** — Pagado con más de 90 días
-- **Naranja claro** — Facturas pendientes (sin pagar)
+- **Amarillo-verde (lima)** — Pagado con más de 90 días
+- **Rojo** — Facturas pendientes (sin pagar)
 - **Gris claro** — Sin facturas emitidas para ese mes/unidad
 
 ## 3. Análisis de Gastos

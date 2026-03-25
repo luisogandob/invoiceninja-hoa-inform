@@ -237,6 +237,11 @@ export interface DbQueryResult {
    * Used to determine when each invoice was fully paid for the payment heatmap.
    */
   invoiceLastPaymentDate: Record<string, string>;
+  /**
+   * Maps client_id → primary contact full name.
+   * Used to display the primary contact name in the AR client breakdown table.
+   */
+  primaryContactByClientId: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -808,6 +813,18 @@ export function queryForReport(
     SELECT * FROM client_groups
   `).all() as ClientGroupRow[]).map(rowToClientGroup);
 
+  // Primary contacts: one row per client (is_primary = 1)
+  const primaryContactByClientId = Object.fromEntries(
+    (db.prepare(`
+      SELECT client_id,
+             TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) AS full_name
+      FROM client_contacts
+      WHERE is_primary = 1
+    `).all() as Array<{ client_id: string; full_name: string }>)
+      .filter(r => r.full_name.trim())
+      .map(r => [r.client_id, r.full_name.trim()])
+  );
+
   return {
     allInvoices,
     periodInvoices,
@@ -835,6 +852,7 @@ export function queryForReport(
         .filter(r => r.paid_date)
         .map(r => [r.invoice_id, r.paid_date])
     ),
+    primaryContactByClientId,
   };
 }
 
