@@ -3,6 +3,7 @@ import type { SentMessageInfo } from 'nodemailer';
 import dotenv from 'dotenv';
 import type { CompanyInfo } from './hoaReportData.js';
 import { buildReportEmailHtml } from './emailTemplate.js';
+import { getDateRange, formatPeriodString } from './dataUtils.js';
 
 dotenv.config();
 
@@ -159,7 +160,7 @@ class EmailSender {
     }
 
     const title = reportTitle || process.env.REPORT_TITLE || 'Informe HOA';
-    const period = periodString || new Date().toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' });
+    const period = periodString || formatPeriodString('current-month', getDateRange('current-month'));
 
     const html = await buildReportEmailHtml({ companyInfo, reportTitle: title, periodString: period });
     const subject = `${title} — Email de Prueba`;
