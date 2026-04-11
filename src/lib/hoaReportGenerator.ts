@@ -300,8 +300,8 @@ class HoaReportGenerator {
       n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     // ── Summary metrics for Resumen Ejecutivo first row ──────────────────────
-    /** Net result for the current period (payments received − expenses paid in period) */
-    const periodResult = totalPaymentsInPeriod - totalExpensesPaidInPeriod;
+    /** Net result for the current period (invoices issued − expenses registered in period) */
+    const periodResult = totalInvoicedInPeriod - totalExpensesInPeriod;
     /** Collection rate: payments / invoiced × 100, or null when no invoices were issued */
     const cobranzaPct = totalInvoicedInPeriod > 0
       ? (totalPaymentsInPeriod / totalInvoicedInPeriod * 100).toFixed(1)
@@ -757,7 +757,7 @@ class HoaReportGenerator {
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
         <tr class="cf-totals-row cf-result-total-row">
-          <td colspan="3" class="cf-total-label">Resultado del Período</td>
+          <td colspan="3" class="cf-total-label">Balance Flujo de Efectivo</td>
           <td class="cf-amount-cell ${cfResult >= 0 ? 'cf-total-in' : 'cf-total-out'}">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
         </tr>
       </tbody>
