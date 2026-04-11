@@ -868,17 +868,38 @@ async function main(): Promise<void> {
       // npm start report <period> attach
       // npm start report <period> email all
       // npm start report <period> email <address>
+      // npm start report custom <start> <end> attach
+      // npm start report custom <start> <end> email all
+      // npm start report custom <start> <end> email <address>
       const period = args[1] as PeriodType | undefined;
       if (!period) {
         console.error('✗ Error: Debe especificar el período.\n');
         console.error('  Uso: npm start report <período> attach');
         console.error('       npm start report <período> email all');
         console.error('       npm start report <período> email <destinatario>');
-        console.error('  Períodos: last-month, current-month, current-year, last-year');
+        console.error('  Períodos: last-month, current-month, current-year, last-year, custom <inicio> <fin>');
         process.exit(1);
       }
 
-      const subcommand = args[2];
+      // When period is 'custom', the next two args are the date range (YYYY-MM-DD).
+      let customRange: import('./lib/dataUtils.js').CustomRange | undefined;
+      let subcommandIndex = 2;
+      if (period === 'custom') {
+        const startDate = args[2];
+        const endDate   = args[3];
+        if (!startDate || !endDate) {
+          console.error('✗ Error: El período "custom" requiere fecha de inicio y fin.\n');
+          console.error('  Uso: npm start report custom <inicio> <fin> attach');
+          console.error('       npm start report custom <inicio> <fin> email all');
+          console.error('       npm start report custom <inicio> <fin> email <destinatario>');
+          console.error('  Ejemplo: npm start report custom 2026-01-01 2026-01-31 attach');
+          process.exit(1);
+        }
+        customRange = { start: startDate, end: endDate };
+        subcommandIndex = 4;
+      }
+
+      const subcommand = args[subcommandIndex];
       if (!subcommand) {
         console.error('✗ Error: Debe especificar un subcomando (attach / email all / email <destinatario>).\n');
         console.error('  Uso: npm start report <período> attach');
@@ -893,7 +914,7 @@ async function main(): Promise<void> {
       if (subcommand === 'attach') {
         deliveryMode = 'attach';
       } else if (subcommand === 'email') {
-        const emailTarget = args[3];
+        const emailTarget = args[subcommandIndex + 1];
         if (!emailTarget) {
           console.error('✗ Error: Debe especificar "all" o un destinatario después de "email".\n');
           console.error('  Uso: npm start report <período> email all');
@@ -914,6 +935,7 @@ async function main(): Promise<void> {
 
       const result = await automation.generateAndSendReport({
         period,
+        customRange: customRange ?? null,
         deliveryMode,
         singleRecipient: singleRecipient || null,
         saveToFile: true
@@ -946,8 +968,9 @@ function printUsage(): void {
   console.log('  npm start report <período> attach                      - Generar PDF y subir a Invoice Ninja (sin email)');
   console.log('  npm start report <período> email all                   - Generar PDF, subir a IN, enviar a todos los contactos y resumen a EMAIL_SUMMARIZE_TO');
   console.log('  npm start report <período> email <destinatario>        - Generar PDF, subir a IN, enviar SOLO a <destinatario> y resumen a EMAIL_SUMMARIZE_TO');
+  console.log('  npm start report custom <inicio> <fin> attach          - Rango personalizado, ej: custom 2026-01-01 2026-01-31 attach');
   console.log('');
-  console.log('  Períodos: last-month, current-month, current-year, last-year');
+  console.log('  Períodos: last-month, current-month, current-year, last-year, custom <inicio> <fin>');
   console.log('');
   console.log('  El subcomando "attach":');
   console.log('    1. Genera el PDF del informe');
