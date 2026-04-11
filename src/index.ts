@@ -275,7 +275,7 @@ class HOAInformAutomation {
 
       // Build the PDF filename: CompanyName_InformeHOA_YYYYMMDD-YYYYMMDD.pdf
       const safeCompanyName = sanitizeFilename(reportData.companyInfo?.name || 'HOA');
-      const pdfFilename = `${safeCompanyName}_InformeHOA_${format(dateRange.start, 'yyyyMMdd')}-${format(dateRange.end, 'yyyyMMdd')}.pdf`;
+      const pdfFilename = `${safeCompanyName}_HOA_${format(dateRange.start, 'yyyyMMdd')}-${format(dateRange.end, 'yyyyMMdd')}.pdf`;
 
       if (saveToFile) {
         await fs.writeFile(outputPath, pdfBuffer);
@@ -287,26 +287,14 @@ class HOAInformAutomation {
       const emailText = [
         `${reportTitle} — ${periodString}`,
         '',
-        `Cuotas Emitidas en el Período:           $${reportData.totalInvoicedInPeriod.toFixed(2)}`,
-        `Pagos Recibidos en el Período:           $${reportData.totalPaymentsInPeriod.toFixed(2)}`,
-        `Gastos del Período:                      $${reportData.totalExpensesInPeriod.toFixed(2)}`,
-        `Cuentas x Cobrar al Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`,
-        `Cuentas x Cobrar al Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}`,
-        '',
-        'Ver el reporte adjunto en PDF para los detalles por cliente.'
+        'El informe financiero correspondiente al período indicado está disponible como adjunto en formato PDF.',
+        'Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.',
       ].join('\n');
 
       const emailHtml = await buildReportEmailHtml({
         companyInfo: reportData.companyInfo,
         reportTitle,
         periodString,
-        stats: {
-          totalIncome:    reportData.totalInvoicedInPeriod,
-          totalPayments:  reportData.totalPaymentsInPeriod,
-          totalExpenses:  reportData.totalExpensesInPeriod,
-          arAtPeriodStart: reportData.arAtPeriodStart,
-          arAtPeriodEnd:  reportData.arAtPeriodEnd,
-        },
       });
 
       await this.emailSender.sendFinancialReport({

@@ -11,14 +11,6 @@ export interface ReportEmailData {
   reportTitle: string;
   /** Human-readable period string (e.g. "marzo 2026") */
   periodString: string;
-  /** Key financial figures for the summary block (optional) */
-  stats?: {
-    totalIncome: number;
-    totalPayments: number;
-    totalExpenses: number;
-    arAtPeriodStart: number;
-    arAtPeriodEnd: number;
-  };
 }
 
 /**
@@ -33,20 +25,17 @@ function escHtml(s: string): string {
 }
 
 /**
- * Format a number as a locale currency string (2 decimal places).
- */
-function fmt(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-/**
  * Build the HTML body of the financial-report email.
+ *
+ * The email intentionally contains no financial figures — it is a simple
+ * notification that invites the recipient to open the attached PDF report,
+ * similar to a bank-statement delivery email.
  *
  * If the company logo URL resolves successfully it is embedded as a base64
  * data URI so email clients that block external images can still display it.
  */
 export async function buildReportEmailHtml(data: ReportEmailData): Promise<string> {
-  const { companyInfo, reportTitle, periodString, stats } = data;
+  const { companyInfo, reportTitle, periodString } = data;
 
   // Fetch logo as a data URI if available
   let logoDataUri: string | undefined;
@@ -91,38 +80,6 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
     ? `<table style="border-collapse:collapse;margin-top:16px;">${contactRows.join('')}</table>`
     : '';
 
-  // Financial summary rows
-  let summaryBlock = '';
-  if (stats) {
-    const rows = [
-      ['Cargos Emitidos en el Período',          fmt(stats.totalIncome)],
-      ['Pagos Recibidos en el Período',          fmt(stats.totalPayments)],
-      ['Gastos del Período',                     fmt(stats.totalExpenses)],
-      ['Cuentas x Cobrar — Inicio del Período',  fmt(stats.arAtPeriodStart)],
-      ['Cuentas x Cobrar — Final del Período',   fmt(stats.arAtPeriodEnd)],
-    ];
-
-    const tableRows = rows.map(([label, value]) => `
-      <tr>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#374151;">${label}</td>
-        <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;font-size:13px;color:#111827;text-align:right;font-weight:600;font-family:monospace;">$${value}</td>
-      </tr>`).join('');
-
-    summaryBlock = `
-      <div style="margin-top:28px;">
-        <h3 style="margin:0 0 12px 0;font-family:Arial,sans-serif;font-size:15px;color:#1e3a5f;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Resumen del Período</h3>
-        <table style="width:100%;border-collapse:collapse;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
-          <thead>
-            <tr style="background:#f3f4f6;">
-              <th style="padding:8px 12px;text-align:left;font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Concepto</th>
-              <th style="padding:8px 12px;text-align:right;font-size:12px;color:#6b7280;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">Monto (USD)</th>
-            </tr>
-          </thead>
-          <tbody>${tableRows}</tbody>
-        </table>
-      </div>`;
-  }
-
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -143,15 +100,22 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
           <tr>
             <td style="padding:32px;">
 
-              <h2 style="margin:0 0 6px 0;font-size:20px;color:#111827;">${escHtml(reportTitle)}</h2>
-              <p style="margin:0 0 4px 0;font-size:15px;color:#374151;">Período: <strong>${escHtml(periodString)}</strong></p>
+              <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">${escHtml(reportTitle)}</h2>
+              <p style="margin:0 0 20px 0;font-size:15px;color:#374151;">Período: <strong>${escHtml(periodString)}</strong></p>
+
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Estimado/a residente,
+              </p>
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Le informamos que el informe financiero de la comunidad correspondiente al período
+                <strong>${escHtml(periodString)}</strong> ya está disponible.
+              </p>
+              <p style="margin:0 0 24px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Encontrará el informe completo en formato PDF adjunto a este correo.
+                Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.
+              </p>
 
               ${contactBlock}
-              ${summaryBlock}
-
-              <p style="margin-top:24px;font-size:14px;color:#6b7280;line-height:1.6;">
-                Encontrará el informe completo en formato PDF adjunto a este correo.
-              </p>
 
             </td>
           </tr>
@@ -171,15 +135,4 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
   </table>
 </body>
 </html>`;
-}
-
-/**
- * Build the HTML body for a test email (no PDF attachment).
- */
-export async function buildTestEmailHtml(companyInfo?: CompanyInfo): Promise<string> {
-  return buildReportEmailHtml({
-    companyInfo,
-    reportTitle: 'Email de Prueba — HOA Informe',
-    periodString: new Date().toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' }),
-  });
 }

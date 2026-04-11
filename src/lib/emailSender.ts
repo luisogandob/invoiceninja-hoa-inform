@@ -2,7 +2,7 @@ import nodemailer, { Transporter } from 'nodemailer';
 import type { SentMessageInfo } from 'nodemailer';
 import dotenv from 'dotenv';
 import type { CompanyInfo } from './hoaReportData.js';
-import { buildTestEmailHtml } from './emailTemplate.js';
+import { buildReportEmailHtml } from './emailTemplate.js';
 
 dotenv.config();
 
@@ -148,9 +148,9 @@ class EmailSender {
 
   /**
    * Send a test email to verify the email configuration.
-   * Uses the branded HTML template with optional company info.
+   * Uses the same branded HTML template as a real report email, without a PDF attachment.
    */
-  async sendTestEmail(to: string, companyInfo?: CompanyInfo): Promise<EmailResult> {
+  async sendTestEmail(to: string, companyInfo?: CompanyInfo, reportTitle?: string, periodString?: string): Promise<EmailResult> {
     this.init();
 
     const recipient = to || this.defaultTo;
@@ -158,9 +158,12 @@ class EmailSender {
       throw new Error('Recipient email address is required');
     }
 
-    const html = await buildTestEmailHtml(companyInfo);
-    const subject = 'Email de Prueba — HOA Informe';
-    const text = 'Este es un email de prueba generado por el sistema HOA Informe. Si lo recibiste correctamente, la configuración de correo está funcionando.';
+    const title = reportTitle || process.env.REPORT_TITLE || 'Informe HOA';
+    const period = periodString || new Date().toLocaleDateString('es-DO', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const html = await buildReportEmailHtml({ companyInfo, reportTitle: title, periodString: period });
+    const subject = `${title} — Email de Prueba`;
+    const text = `Este es un email de prueba generado por el sistema HOA Informe.\nTítulo: ${title}\nPeríodo: ${period}\n\nSi lo recibiste correctamente, la configuración de correo está funcionando.`;
 
     const mailOptions = {
       from: this.from,
