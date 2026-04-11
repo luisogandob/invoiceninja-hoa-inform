@@ -215,7 +215,7 @@ export interface DbQueryResult {
   periodPayments: Payment[];
   /** Non-deleted expenses whose date falls within [periodStart, periodEnd]. */
   periodExpenses: Expense[];
-  /** Every non-deleted expense (for AP outstanding balance). */
+  /** Every non-deleted expense with date ≤ periodEnd (for AP outstanding balance and cash flow). */
   allExpenses:    Expense[];
   /** Every non-deleted client. */
   allClients:     Client[];
@@ -743,15 +743,18 @@ export function queryForReport(
     paymentables:          paymentablesMap.get(row.id) ?? [],
   }));
 
-  // All expenses (not deleted) — used for AP outstanding balance
+  // All expenses (not deleted) with date ≤ periodEnd — used for AP outstanding balance and cash flow.
+  // Expenses dated after the period end are excluded at the DB level, consistent with the allInvoices
+  // query and the requirement that CxP must not include any expense whose date exceeds the period cutoff.
+  // Expenses with a NULL date are retained so that old outstanding items without a date are still visible.
   const allExpenses = (db.prepare(`
     SELECT e.*, v.name AS vendor_name, c.name AS category_name, cli.name AS client_name
     FROM expenses e
     LEFT JOIN vendors v ON v.id = e.vendor_id
     LEFT JOIN expense_categories c ON c.id = e.category_id
     LEFT JOIN clients cli ON cli.id = e.client_id
-    WHERE e.is_deleted = 0
-  `).all() as ExpenseRow[]).map(rowToExpense);
+    WHERE e.is_deleted = 0 AND (e.date IS NULL OR e.date <= ?)
+  `).all(endISO) as ExpenseRow[]).map(rowToExpense);
 
   // Expenses within the period (gastos del período)
   const periodExpenses = (db.prepare(`
