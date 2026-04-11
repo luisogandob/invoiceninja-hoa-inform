@@ -304,21 +304,7 @@ export function getExpenseStats(expenses: Expense[]): ExpenseStats {
  */
 export function formatPeriodString(period: PeriodType, dateRange: DateRange): string {
   const { start, end } = dateRange;
-
-  switch (period) {
-    case 'current-month':
-      return format(start, 'MMMM yyyy');
-    case 'last-month':
-      return format(start, 'MMMM yyyy');
-    case 'current-year':
-      return format(start, 'yyyy');
-    case 'last-year':
-      return format(start, 'yyyy');
-    case 'custom':
-      return `${format(start, 'MMM dd, yyyy')} - ${format(end, 'MMM dd, yyyy')}`;
-    default:
-      return `${format(start, 'MMM dd, yyyy')} - ${format(end, 'MMM dd, yyyy')}`;
-  }
+  return `${format(start, 'dd/MM/yyyy')} al ${format(end, 'dd/MM/yyyy')}`;
 }
 
 /**

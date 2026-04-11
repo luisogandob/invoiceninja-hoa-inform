@@ -7,6 +7,7 @@ import EmailSender from './lib/emailSender.js';
 import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
 import type { CompanyInfo } from './lib/hoaReportData.js';
+import { buildReportEmailHtml } from './lib/emailTemplate.js';
 import { createDb, getSyncMeta, syncDb, queryForReport, getCompanyProfileFromDb } from './lib/localDb.js';
 import type { SyncMode } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
@@ -45,10 +46,24 @@ function buildCompanyInfo(db: ReturnType<typeof createDb>): CompanyInfo {
     rnc:     process.env.COMPANY_RNC     || s?.id_number     || undefined,
     website: process.env.COMPANY_WEBSITE || s?.website       || undefined,
     email:   process.env.COMPANY_EMAIL   || s?.email         || undefined,
+    phone:   process.env.COMPANY_PHONE   || s?.phone         || undefined,
     address: process.env.COMPANY_ADDRESS || cachedAddress,
     logoUrl: process.env.COMPANY_LOGO_URL || cached?.logo    || undefined,
   };
 }
+
+/**
+ * Sanitize a string for use as a filename component.
+ * Replaces characters that are not alphanumeric or Latin extended with underscores,
+ * collapses consecutive underscores, and strips leading/trailing underscores.
+ */
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9\u00C0-\u024F]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
 
 /**
  * Load the documentation markdown from REPORT_DOCS_PATH (default: ./report-docs.md).
@@ -258,6 +273,10 @@ class HOAInformAutomation {
       console.log('Generating PDF...');
       const pdfBuffer = await this.hoaReportGenerator.generatePdf(reportData);
 
+      // Build the PDF filename: CompanyName_InformeHOA_YYYYMMDD-YYYYMMDD.pdf
+      const safeCompanyName = sanitizeFilename(reportData.companyInfo?.name || 'HOA');
+      const pdfFilename = `${safeCompanyName}_HOA_${format(dateRange.start, 'yyyyMMdd')}-${format(dateRange.end, 'yyyyMMdd')}.pdf`;
+
       if (saveToFile) {
         await fs.writeFile(outputPath, pdfBuffer);
         console.log(`PDF saved to: ${outputPath}`);
@@ -268,22 +287,23 @@ class HOAInformAutomation {
       const emailText = [
         `${reportTitle} — ${periodString}`,
         '',
-        `Cuotas Emitidas en el Período:           $${reportData.totalInvoicedInPeriod.toFixed(2)}`,
-        `Pagos Recibidos en el Período:           $${reportData.totalPaymentsInPeriod.toFixed(2)}`,
-        `Gastos del Período:                      $${reportData.totalExpensesInPeriod.toFixed(2)}`,
-        `Cuentas x Cobrar al Inicio del Período:  $${reportData.arAtPeriodStart.toFixed(2)}`,
-        `Cuentas x Cobrar al Final del Período:   $${reportData.arAtPeriodEnd.toFixed(2)}`,
-        '',
-        'Ver el reporte adjunto en PDF para los detalles por cliente.'
+        'El informe financiero correspondiente al período indicado está disponible como adjunto en formato PDF.',
+        'Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.',
       ].join('\n');
+
+      const emailHtml = await buildReportEmailHtml({
+        companyInfo: reportData.companyInfo,
+        reportTitle,
+        periodString,
+      });
 
       await this.emailSender.sendFinancialReport({
         to: emailTo || undefined,
         subject: emailSubject,
         text: emailText,
-        html: `<pre style="font-family:monospace">${emailText}</pre>`,
+        html: emailHtml,
         pdfBuffer,
-        pdfFilename: `hoa-report-${format(new Date(), 'yyyy-MM-dd')}.pdf`
+        pdfFilename,
       });
       console.log('Email sent successfully');
 
@@ -474,6 +494,28 @@ class HOAInformAutomation {
       };
     }
   }
+
+  /**
+   * Send a test email to the given address using the branded HTML template.
+   * Reads company info from the local cache (no PDF generated).
+   */
+  async sendTestEmail(to: string): Promise<void> {
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log(`TEST EMAIL — Enviando email de prueba a: ${to}`);
+    console.log('═══════════════════════════════════════════════════════════\n');
+
+    const dbPath = process.env.DB_CACHE_PATH;
+    const db = createDb(dbPath);
+    let companyInfo: CompanyInfo | undefined;
+    try {
+      companyInfo = buildCompanyInfo(db);
+    } finally {
+      db.close();
+    }
+
+    await this.emailSender.sendTestEmail(to, companyInfo);
+    console.log(`\n✓ Email de prueba enviado exitosamente a: ${to}`);
+  }
 }
 
 // Main execution
@@ -481,11 +523,25 @@ async function main(): Promise<void> {
   const automation = new HOAInformAutomation();
 
   const args = process.argv.slice(2);
-  const command = args[0] || 'report';
+  const command = args[0];
 
   try {
-    if (command === 'test') {
+    if (!command) {
+      // No command provided — show error (do NOT default to report/current-month)
+      console.error('✗ Error: Debe especificar un comando y período.\n');
+      printUsage();
+      process.exit(1);
+    } else if (command === 'test') {
       await automation.testConnections();
+    } else if (command === 'test-email') {
+      // npm start test-email <email>
+      const emailArg = args[1];
+      if (!emailArg) {
+        console.error('✗ Error: Debe especificar el email destinatario.\n');
+        console.error('  Uso: npm start test-email <email>');
+        process.exit(1);
+      }
+      await automation.sendTestEmail(emailArg);
     } else if (command === 'sync') {
       // "sync" defaults to full; "sync incremental" for incremental mode
       const rawMode = (args[1] ?? 'full').toLowerCase();
@@ -506,9 +562,31 @@ async function main(): Promise<void> {
         console.log(`  CxC final:       $${result.stats.totalUnpaidBalance.toFixed(2)}`);
       }
     } else if (command === 'report') {
-      const period = (args[1] as PeriodType) || (process.env.REPORT_PERIOD as PeriodType) || 'current-month';
+      // npm start report <period> [email <address>]
+      const period = args[1] as PeriodType | undefined;
+      if (!period) {
+        console.error('✗ Error: Debe especificar el período.\n');
+        console.error('  Uso: npm start report <período> [email <destinatario>]');
+        console.error('  Períodos: last-month, current-month, current-year, last-year');
+        process.exit(1);
+      }
+
+      // Optional: "email <address>" after the period
+      // args[0]=command, args[1]=period → search for 'email' keyword starting at index 2
+      let emailTo: string | undefined;
+      const emailKeywordIdx = args.indexOf('email', 2);
+      if (emailKeywordIdx !== -1) {
+        emailTo = args[emailKeywordIdx + 1];
+        if (!emailTo) {
+          console.error('✗ Error: Debe especificar el email destinatario después de "email".\n');
+          console.error('  Uso: npm start report <período> email <destinatario>');
+          process.exit(1);
+        }
+      }
+
       const result = await automation.generateAndSendReport({
         period,
+        emailTo: emailTo || null,
         saveToFile: true
       });
       if (result.stats) {
@@ -520,25 +598,34 @@ async function main(): Promise<void> {
         console.log(`  CxC final:       $${result.stats.totalUnpaidBalance.toFixed(2)}`);
       }
     } else {
-      console.log('Uso:');
-      console.log('  npm start sync [full]             - Sincronizar todos los datos desde Invoice Ninja');
-      console.log('  npm start sync incremental        - Sincronizar solo cambios desde la última sincronización');
-      console.log('  npm start test                    - Probar conexiones');
-      console.log('  npm start test-inform [período]   - Previsualizar reporte (sin email, usa caché)');
-      console.log('  npm start report [período]        - Generar y enviar reporte (usa caché)');
-      console.log('');
-      console.log('  Períodos: current-month, last-month, current-year, last-year');
-      console.log('');
-      console.log('  Flujo recomendado:');
-      console.log('    1. npm start sync        ← poblar/actualizar el caché');
-      console.log('    2. npm start test-inform ← verificar resultado');
-      console.log('    3. npm start report      ← generar y enviar por email');
+      console.error(`✗ Error: Comando desconocido: "${command}"\n`);
+      printUsage();
+      process.exit(1);
     }
   } catch (error) {
     console.error('\n✗ Error:', (error as Error).message);
     process.exit(1);
   }
 }
+
+function printUsage(): void {
+  console.log('Uso:');
+  console.log('  npm start sync [full]                              - Sincronizar todos los datos desde Invoice Ninja');
+  console.log('  npm start sync incremental                         - Sincronizar solo cambios desde la última sincronización');
+  console.log('  npm start test                                     - Probar conexiones');
+  console.log('  npm start test-email <email>                       - Enviar email de prueba');
+  console.log('  npm start test-inform [período]                    - Previsualizar reporte (sin email, usa caché)');
+  console.log('  npm start report <período>                         - Generar y guardar reporte PDF (usa caché)');
+  console.log('  npm start report <período> email <destinatario>    - Generar y enviar reporte por email');
+  console.log('');
+  console.log('  Períodos: last-month, current-month, current-year, last-year');
+  console.log('');
+  console.log('  Flujo recomendado:');
+  console.log('    1. npm start sync                         ← poblar/actualizar el caché');
+  console.log('    2. npm start test-inform last-month       ← verificar resultado');
+  console.log('    3. npm start report last-month email ...  ← generar y enviar por email');
+}
+
 
 // Run main function if this is the entry point
 import { pathToFileURL } from 'url';

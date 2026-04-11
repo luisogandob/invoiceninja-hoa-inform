@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{REPORT_TITLE}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#1e3a5f;padding:28px 32px;text-align:center;">
+              {{LOGO_HTML}}
+              {{COMPANY_NAME_HTML}}
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:32px;">
+
+              <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">{{REPORT_TITLE}}</h2>
+              <p style="margin:0 0 20px 0;font-size:15px;color:#374151;">Período: <strong>{{PERIOD_STRING}}</strong></p>
+
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Estimado/a residente,
+              </p>
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Le informamos que el informe financiero de la comunidad correspondiente al período
+                <strong>{{PERIOD_STRING}}</strong> ya está disponible.
+              </p>
+              <p style="margin:0 0 24px 0;font-size:14px;color:#374151;line-height:1.7;">
+                Encontrará el informe completo en formato PDF adjunto a este correo.
+                Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.
+              </p>
+
+              {{CONTACT_BLOCK}}
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;">
+                {{COMPANY_NAME}} &copy; {{CURRENT_YEAR}}
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
