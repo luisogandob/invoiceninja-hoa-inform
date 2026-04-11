@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import { format } from 'date-fns';
+import { es as esLocale } from 'date-fns/locale';
 import { promises as fs, readFileSync } from 'fs';
 import { resolve as resolvePath, relative as pathRelative, isAbsolute as isAbsolutePath } from 'path';
 import InvoiceNinjaClient from './lib/invoiceNinjaClient.js';
@@ -8,8 +9,8 @@ import HoaReportGenerator from './lib/hoaReportGenerator.js';
 import { buildHoaReportData } from './lib/hoaReportData.js';
 import type { CompanyInfo } from './lib/hoaReportData.js';
 import { buildReportEmailHtml } from './lib/emailTemplate.js';
-import { createDb, getSyncMeta, syncDb, queryForReport, getCompanyProfileFromDb } from './lib/localDb.js';
-import type { SyncMode } from './lib/localDb.js';
+import { createDb, getSyncMeta, syncDb, queryForReport, getCompanyProfileFromDb, getContactsWithEmail } from './lib/localDb.js';
+import type { SyncMode, ContactWithEmail } from './lib/localDb.js';
 import type { PeriodType, CustomRange } from './lib/dataUtils.js';
 import { getDateRange, formatPeriodString } from './lib/dataUtils.js';
 
@@ -62,6 +63,139 @@ function sanitizeFilename(name: string): string {
     .replace(/[^a-zA-Z0-9\u00C0-\u024F]/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_|_$/g, '');
+}
+
+/** Escape a string for safe insertion into HTML. */
+function esc(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * One entry in the per-contact email delivery log.
+ */
+interface DeliveryLogEntry {
+  clientName:  string;
+  contactName: string;
+  email:       string;
+  sentAt:      Date;
+  status:      'ok' | 'error';
+  error?:      string;
+}
+
+/**
+ * Build the HTML body for the operator summary email.
+ *
+ * Contains a results table (client | contact | email | date-time | status)
+ * and high-level counters.  The PDF is sent as an attachment separately.
+ */
+function buildSummaryEmailHtml(
+  log: DeliveryLogEntry[],
+  reportTitle: string,
+  periodString: string,
+  companyInfo: CompanyInfo | undefined,
+  pdfFilename: string,
+): string {
+  const companyName = companyInfo?.name ?? 'HOA';
+  const now         = new Date();
+  const sentCount   = log.filter(e => e.status === 'ok').length;
+  const errorCount  = log.filter(e => e.status === 'error').length;
+
+  const tableRows = log.map(e => {
+    const dt      = format(e.sentAt, 'dd/MM/yyyy HH:mm:ss');
+    const statusTd = e.status === 'ok'
+      ? `<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;color:#16a34a;white-space:nowrap;">✓ Enviado</td>`
+      : `<td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;color:#dc2626;white-space:nowrap;">✗ ${esc(e.error ?? 'Error')}</td>`;
+    return `<tr>
+      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">${esc(e.clientName)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">${esc(e.contactName || '—')}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;">${esc(e.email)}</td>
+      <td style="padding:6px 10px;border-bottom:1px solid #e5e7eb;white-space:nowrap;">${dt}</td>
+      ${statusTd}
+    </tr>`;
+  }).join('');
+
+  const statusBadge = errorCount === 0
+    ? `<span style="background:#dcfce7;color:#166534;padding:4px 12px;border-radius:12px;font-size:13px;font-weight:600;">✓ Completado sin errores</span>`
+    : `<span style="background:#fef9c3;color:#854d0e;padding:4px 12px;border-radius:12px;font-size:13px;font-weight:600;">⚠️ Completado con ${errorCount} error(es)</span>`;
+
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Resumen de envíos — ${esc(reportTitle)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" style="max-width:700px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:#1e3a5f;padding:24px 32px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">${esc(companyName)}</h1>
+              <p style="margin:6px 0 0;color:#93c5fd;font-size:13px;">Resumen de envíos del informe</p>
+            </td>
+          </tr>
+
+          <!-- Summary bar -->
+          <tr>
+            <td style="padding:20px 32px;background:#f8fafc;border-bottom:1px solid #e5e7eb;">
+              <p style="margin:0 0 8px;font-size:15px;color:#111827;font-weight:600;">${esc(reportTitle)}</p>
+              <p style="margin:0 0 12px;font-size:14px;color:#6b7280;">Período: <strong>${esc(periodString)}</strong></p>
+              <p style="margin:0 0 8px;font-size:14px;color:#374151;">
+                📧 <strong>${log.length}</strong> destinatario(s) procesado(s) —
+                <strong style="color:#16a34a;">${sentCount}</strong> enviado(s),
+                <strong style="color:#dc2626;">${errorCount}</strong> error(es)
+              </p>
+              <p style="margin:0 0 4px;font-size:14px;color:#374151;">
+                📎 Archivo adjunto: <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;">${esc(pdfFilename)}</code>
+              </p>
+              <p style="margin:8px 0 0;">${statusBadge}</p>
+            </td>
+          </tr>
+
+          <!-- Delivery table -->
+          <tr>
+            <td style="padding:24px 32px;">
+              <h2 style="margin:0 0 16px;font-size:15px;color:#111827;">Detalle de envíos</h2>
+              <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:13px;color:#374151;">
+                  <thead>
+                    <tr style="background:#f3f4f6;">
+                      <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;">Cliente</th>
+                      <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;">Contacto</th>
+                      <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;">Correo</th>
+                      <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;white-space:nowrap;">Fecha y hora</th>
+                      <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e5e7eb;">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${tableRows || '<tr><td colspan="5" style="padding:12px 10px;color:#9ca3af;font-style:italic;">Sin destinatarios</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background:#f8fafc;padding:14px 32px;border-top:1px solid #e5e7eb;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;">${esc(companyName)} &copy; ${now.getFullYear()} — Generado el ${format(now, 'dd/MM/yyyy HH:mm', { locale: esLocale })}</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 
@@ -203,6 +337,14 @@ class HOAInformAutomation {
   /**
    * Generate and send the HOA income report as a PDF via email.
    *
+   * Full delivery flow:
+   *  1. Generate the PDF from the local SQLite cache.
+   *  2. Save the PDF to disk (when `saveToFile` is true).
+   *  3. Upload the PDF to Invoice Ninja as a public company document.
+   *  4. Send the report email to every client contact that has an email address.
+   *  5. Send an operator summary email (with delivery table + PDF) to `emailTo`
+   *     or the `EMAIL_TO` env variable.
+   *
    * Reads all data from the local SQLite cache — does NOT call the Invoice
    * Ninja API.  Run `syncData()` first to populate the cache.
    */
@@ -216,10 +358,12 @@ class HOAInformAutomation {
     } = options;
 
     try {
-      console.log('Starting HOA Report Generation...');
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('REPORT — Generando informe HOA');
+      console.log('═══════════════════════════════════════════════════════════\n');
 
       const dateRange = getDateRange(period, customRange);
-      console.log(`Date range: ${dateRange.startISO} to ${dateRange.endISO}`);
+      console.log(`📅 Período: ${dateRange.startISO} → ${dateRange.endISO}`);
 
       const reportTitle = process.env.REPORT_TITLE || 'Informe HOA';
 
@@ -228,6 +372,9 @@ class HOAInformAutomation {
       let filteredPeriodInvoicesLength = 0;
       let filteredPeriodPaymentsLength = 0;
       let allInvoicesRef: ReturnType<typeof queryForReport>['allInvoices'] = [];
+      let contacts: ContactWithEmail[] = [];
+      let companyId: string | undefined;
+
       try {
         const {
           allInvoices, periodInvoices, periodPayments,
@@ -260,30 +407,52 @@ class HOAInformAutomation {
         );
         reportData.companyInfo  = buildCompanyInfo(db);
         reportData.docsMarkdown = readDocsMarkdown();
+
+        // Collect contacts with email and the company ID while the DB is open
+        contacts  = getContactsWithEmail(db);
+        companyId = getCompanyProfileFromDb(db)?.id;
       } finally {
         db.close();
       }
 
-      console.log(`Cuotas emitidas: $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
-      console.log(`Pagos recibidos: $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
-      console.log(`Gastos:          $${reportData.totalExpensesInPeriod.toFixed(2)}`);
-      console.log(`CxC inicio:      $${reportData.arAtPeriodStart.toFixed(2)}`);
-      console.log(`CxC final:       $${reportData.arAtPeriodEnd.toFixed(2)}`);
+      console.log(`\n💰 Totales del período:`);
+      console.log(`   Cuotas emitidas: $${reportData.totalInvoicedInPeriod.toFixed(2)}`);
+      console.log(`   Pagos recibidos: $${reportData.totalPaymentsInPeriod.toFixed(2)}`);
+      console.log(`   Gastos:          $${reportData.totalExpensesInPeriod.toFixed(2)}`);
+      console.log(`   CxC inicio:      $${reportData.arAtPeriodStart.toFixed(2)}`);
+      console.log(`   CxC final:       $${reportData.arAtPeriodEnd.toFixed(2)}\n`);
 
-      console.log('Generating PDF...');
+      // ── Step 1: Generate PDF ──────────────────────────────────────────────
+      console.log('📄 [1/4] Generando PDF...');
       const pdfBuffer = await this.hoaReportGenerator.generatePdf(reportData);
+      await this.hoaReportGenerator.close();
 
-      // Build the PDF filename: CompanyName_InformeHOA_YYYYMMDD-YYYYMMDD.pdf
+      // Build the PDF filename: CompanyName_HOA_YYYYMMDD-YYYYMMDD.pdf
       const safeCompanyName = sanitizeFilename(reportData.companyInfo?.name || 'HOA');
       const pdfFilename = `${safeCompanyName}_HOA_${format(dateRange.start, 'yyyyMMdd')}-${format(dateRange.end, 'yyyyMMdd')}.pdf`;
 
       if (saveToFile) {
         await fs.writeFile(outputPath, pdfBuffer);
-        console.log(`PDF saved to: ${outputPath}`);
+        console.log(`   ✓ PDF guardado en: ${outputPath}`);
+      }
+      console.log(`   ✓ PDF generado (${(pdfBuffer.length / 1024).toFixed(0)} KB) → ${pdfFilename}`);
+
+      // ── Step 2: Upload PDF to Invoice Ninja as company document ───────────
+      console.log('\n☁️  [2/4] Subiendo PDF a Invoice Ninja...');
+      if (companyId) {
+        try {
+          await this.invoiceNinja.uploadCompanyDocument(companyId, pdfBuffer, pdfFilename);
+          console.log(`   ✓ Documento subido como documento público de empresa`);
+        } catch (uploadErr) {
+          console.warn(`   ⚠️  No se pudo subir el documento a Invoice Ninja: ${(uploadErr as Error).message}`);
+        }
+      } else {
+        console.warn('   ⚠️  ID de empresa no disponible — omitiendo subida a Invoice Ninja');
       }
 
+      // ── Step 3: Send report email to each contact ─────────────────────────
       const periodString = formatPeriodString(period, dateRange);
-      const emailSubject = `${reportTitle} - ${periodString}`;
+      const emailSubject = `${reportTitle} — ${periodString}`;
       const emailText = [
         `${reportTitle} — ${periodString}`,
         '',
@@ -291,23 +460,99 @@ class HOAInformAutomation {
         'Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.',
       ].join('\n');
 
-      const emailHtml = await buildReportEmailHtml({
-        companyInfo: reportData.companyInfo,
+      console.log(`\n📧 [3/4] Enviando correos a contactos (${contacts.length} destinatario(s))...`);
+
+      const deliveryLog: DeliveryLogEntry[] = [];
+
+      if (contacts.length === 0) {
+        console.log('   ℹ️  No se encontraron contactos con correo registrado.');
+      }
+
+      for (let i = 0; i < contacts.length; i++) {
+        const contact = contacts[i];
+        const prefix  = `   [${i + 1}/${contacts.length}]`;
+        const label   = contact.full_name
+          ? `${contact.full_name} <${contact.email}>`
+          : contact.email;
+
+        try {
+          const html = await buildReportEmailHtml({
+            companyInfo:   reportData.companyInfo,
+            reportTitle,
+            periodString,
+            recipientName: contact.full_name || undefined,
+          });
+
+          await this.emailSender.sendFinancialReport({
+            to:          contact.email,
+            subject:     emailSubject,
+            text:        emailText,
+            html,
+            pdfBuffer,
+            pdfFilename,
+          });
+
+          const sentAt = new Date();
+          deliveryLog.push({
+            clientName:  contact.client_name,
+            contactName: contact.full_name,
+            email:       contact.email,
+            sentAt,
+            status:      'ok',
+          });
+          console.log(`${prefix} ✓ ${label} (${contact.client_name})`);
+        } catch (mailErr) {
+          const sentAt = new Date();
+          const errMsg = (mailErr as Error).message;
+          deliveryLog.push({
+            clientName:  contact.client_name,
+            contactName: contact.full_name,
+            email:       contact.email,
+            sentAt,
+            status:      'error',
+            error:       errMsg,
+          });
+          console.warn(`${prefix} ✗ ${label} — ${errMsg}`);
+        }
+      }
+
+      const sentOk  = deliveryLog.filter(e => e.status === 'ok').length;
+      const sentErr = deliveryLog.filter(e => e.status === 'error').length;
+      console.log(`\n   Resultado: ${sentOk} enviado(s), ${sentErr} error(es)`);
+
+      // ── Step 4: Send operator summary email ───────────────────────────────
+      console.log('\n📋 [4/4] Enviando correo resumen al operador...');
+      const summaryHtml = buildSummaryEmailHtml(
+        deliveryLog,
         reportTitle,
         periodString,
-      });
+        reportData.companyInfo,
+        pdfFilename,
+      );
+      const summarySubject = `${reportTitle} — Resumen de envíos (${periodString})`;
+      const summaryText = [
+        `Resumen de envíos: ${reportTitle} — ${periodString}`,
+        '',
+        `Total destinatarios: ${contacts.length}`,
+        `Enviados exitosamente: ${sentOk}`,
+        `Errores: ${sentErr}`,
+        '',
+        'El PDF del informe está adjunto a este correo.',
+      ].join('\n');
 
       await this.emailSender.sendFinancialReport({
-        to: emailTo || undefined,
-        subject: emailSubject,
-        text: emailText,
-        html: emailHtml,
+        to:          emailTo || undefined,
+        subject:     summarySubject,
+        text:        summaryText,
+        html:        summaryHtml,
         pdfBuffer,
         pdfFilename,
       });
-      console.log('Email sent successfully');
+      console.log(`   ✓ Resumen enviado`);
 
-      await this.hoaReportGenerator.close();
+      console.log('\n═══════════════════════════════════════════════════════════');
+      console.log('✓ REPORT COMPLETADO EXITOSAMENTE');
+      console.log('═══════════════════════════════════════════════════════════\n');
 
       const unpaidCount = allInvoicesRef.filter(inv => parseFloat(String(inv.balance || 0)) > 0).length;
 
@@ -315,18 +560,18 @@ class HOAInformAutomation {
         success: true,
         message: 'Report generated and sent successfully',
         stats: {
-          incomeCount: filteredPeriodInvoicesLength,
-          paymentCount: filteredPeriodPaymentsLength,
+          incomeCount:        filteredPeriodInvoicesLength,
+          paymentCount:       filteredPeriodPaymentsLength,
           unpaidInvoiceCount: unpaidCount,
-          totalIncome: reportData.totalInvoicedInPeriod,
-          totalPayments: reportData.totalPaymentsInPeriod,
+          totalIncome:        reportData.totalInvoicedInPeriod,
+          totalPayments:      reportData.totalPaymentsInPeriod,
           totalUnpaidBalance: reportData.arAtPeriodEnd,
-          arAtPeriodStart: reportData.arAtPeriodStart,
-          period: periodString
+          arAtPeriodStart:    reportData.arAtPeriodStart,
+          period:             periodString,
         }
       };
     } catch (error) {
-      console.error('Error generating report:', (error as Error).message);
+      console.error('\n✗ Error generando reporte:', (error as Error).message);
       throw error;
     }
   }
@@ -562,24 +807,24 @@ async function main(): Promise<void> {
         console.log(`  CxC final:       $${result.stats.totalUnpaidBalance.toFixed(2)}`);
       }
     } else if (command === 'report') {
-      // npm start report <period> [email <address>]
+      // npm start report <period> [email <summary-address>]
       const period = args[1] as PeriodType | undefined;
       if (!period) {
         console.error('✗ Error: Debe especificar el período.\n');
-        console.error('  Uso: npm start report <período> [email <destinatario>]');
+        console.error('  Uso: npm start report <período> [email <destinatario-resumen>]');
         console.error('  Períodos: last-month, current-month, current-year, last-year');
         process.exit(1);
       }
 
-      // Optional: "email <address>" after the period
-      // args[0]=command, args[1]=period → search for 'email' keyword starting at index 2
+      // Optional: "email <address>" after the period — overrides EMAIL_TO for the summary email.
+      // Individual contact emails always go to every registered contact in the DB.
       let emailTo: string | undefined;
       const emailKeywordIdx = args.indexOf('email', 2);
       if (emailKeywordIdx !== -1) {
         emailTo = args[emailKeywordIdx + 1];
         if (!emailTo) {
           console.error('✗ Error: Debe especificar el email destinatario después de "email".\n');
-          console.error('  Uso: npm start report <período> email <destinatario>');
+          console.error('  Uso: npm start report <período> email <destinatario-resumen>');
           process.exit(1);
         }
       }
@@ -590,7 +835,6 @@ async function main(): Promise<void> {
         saveToFile: true
       });
       if (result.stats) {
-        console.log('\n✓ Report generation completed successfully!');
         console.log(`  Período:         ${result.stats.period}`);
         console.log(`  Cuotas emitidas: $${result.stats.totalIncome.toFixed(2)}`);
         console.log(`  Pagos recibidos: $${result.stats.totalPayments.toFixed(2)}`);
@@ -610,20 +854,26 @@ async function main(): Promise<void> {
 
 function printUsage(): void {
   console.log('Uso:');
-  console.log('  npm start sync [full]                              - Sincronizar todos los datos desde Invoice Ninja');
-  console.log('  npm start sync incremental                         - Sincronizar solo cambios desde la última sincronización');
-  console.log('  npm start test                                     - Probar conexiones');
-  console.log('  npm start test-email <email>                       - Enviar email de prueba');
-  console.log('  npm start test-inform [período]                    - Previsualizar reporte (sin email, usa caché)');
-  console.log('  npm start report <período>                         - Generar y guardar reporte PDF (usa caché)');
-  console.log('  npm start report <período> email <destinatario>    - Generar y enviar reporte por email');
+  console.log('  npm start sync [full]                                  - Sincronizar todos los datos desde Invoice Ninja');
+  console.log('  npm start sync incremental                             - Sincronizar solo cambios desde la última sincronización');
+  console.log('  npm start test                                         - Probar conexiones');
+  console.log('  npm start test-email <email>                           - Enviar email de prueba');
+  console.log('  npm start test-inform [período]                        - Previsualizar reporte (sin email, usa caché)');
+  console.log('  npm start report <período>                             - Generar PDF, subir a IN, enviar a contactos y resumen a EMAIL_TO');
+  console.log('  npm start report <período> email <destinatario>        - Igual, pero el resumen se envía a <destinatario>');
   console.log('');
   console.log('  Períodos: last-month, current-month, current-year, last-year');
   console.log('');
+  console.log('  El comando "report" siempre:');
+  console.log('    1. Genera el PDF del informe');
+  console.log('    2. Sube el PDF a Invoice Ninja como documento público de empresa');
+  console.log('    3. Envía el informe a cada contacto con correo registrado en el caché');
+  console.log('    4. Envía un correo resumen al operador (EMAIL_TO) con tabla de envíos y el PDF adjunto');
+  console.log('');
   console.log('  Flujo recomendado:');
-  console.log('    1. npm start sync                         ← poblar/actualizar el caché');
-  console.log('    2. npm start test-inform last-month       ← verificar resultado');
-  console.log('    3. npm start report last-month email ...  ← generar y enviar por email');
+  console.log('    1. npm start sync                        ← poblar/actualizar el caché');
+  console.log('    2. npm start test-inform last-month      ← verificar resultado');
+  console.log('    3. npm start report last-month           ← enviar informe completo');
 }
 
 

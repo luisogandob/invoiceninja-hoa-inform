@@ -15,6 +15,11 @@ export interface ReportEmailData {
   reportTitle: string;
   /** Human-readable period string (e.g. "marzo 2026") */
   periodString: string;
+  /**
+   * Name of the individual recipient used in the greeting line.
+   * When omitted the template falls back to "residente".
+   */
+  recipientName?: string;
 }
 
 /**
@@ -87,7 +92,7 @@ function builtInTemplate(): string {
             <td style="padding:32px;">
               <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">{{REPORT_TITLE}}</h2>
               <p style="margin:0 0 20px 0;font-size:15px;color:#374151;">Período: <strong>{{PERIOD_STRING}}</strong></p>
-              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">Estimado/a residente,</p>
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">Estimado/a {{RECIPIENT_NAME}},</p>
               <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">Le informamos que el informe financiero de la comunidad correspondiente al período <strong>{{PERIOD_STRING}}</strong> ya está disponible.</p>
               <p style="margin:0 0 24px 0;font-size:14px;color:#374151;line-height:1.7;">Encontrará el informe completo en formato PDF adjunto a este correo. Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.</p>
               {{CONTACT_BLOCK}}
@@ -135,9 +140,13 @@ function builtInTemplate(): string {
  *   {{COMPANY_RNC}}       — HTML-escaped RNC / tax ID, or empty string
  *   {{CONTACT_BLOCK}}     — <table> with address/phone/email/website/RNC rows,
  *                           or empty string when no contact info is available
+ *
+ *   — Recipient greeting —
+ *   {{RECIPIENT_NAME}}    — HTML-escaped recipient name for the greeting line.
+ *                           Defaults to "residente" when not supplied.
  */
 export async function buildReportEmailHtml(data: ReportEmailData): Promise<string> {
-  const { companyInfo, reportTitle, periodString } = data;
+  const { companyInfo, reportTitle, periodString, recipientName } = data;
 
   // Fetch logo as a data URI if available
   let logoDataUri: string | undefined;
@@ -202,6 +211,8 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
     COMPANY_WEBSITE:    companyInfo?.website ? escHtml(companyInfo.website) : '',
     COMPANY_RNC:        companyInfo?.rnc     ? escHtml(companyInfo.rnc)     : '',
     CONTACT_BLOCK:      contactBlock,
+    // Recipient-specific greeting
+    RECIPIENT_NAME:     recipientName ? escHtml(recipientName) : 'residente',
   };
 
   const source = loadTemplateSource();

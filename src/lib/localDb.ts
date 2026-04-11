@@ -244,6 +244,64 @@ export interface DbQueryResult {
   primaryContactByClientId: Record<string, string>;
 }
 
+/**
+ * A client contact that has a registered email address.
+ * Used for sending the report to each resident.
+ */
+export interface ContactWithEmail {
+  id: string;
+  client_id: string;
+  client_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  /** Trimmed "first_name last_name" string — may be empty if both parts are null. */
+  full_name: string;
+  email: string;
+  is_primary: boolean;
+}
+
+/**
+ * Return all non-deleted client contacts that have a non-empty email address.
+ * Results are ordered by client name, then primary-first, then first name.
+ */
+export function getContactsWithEmail(db: InstanceType<typeof Database>): ContactWithEmail[] {
+  const rows = db.prepare(`
+    SELECT cc.id,
+           cc.client_id,
+           c.name  AS client_name,
+           cc.first_name,
+           cc.last_name,
+           TRIM(COALESCE(cc.first_name,'') || ' ' || COALESCE(cc.last_name,'')) AS full_name,
+           cc.email,
+           cc.is_primary
+    FROM client_contacts cc
+    JOIN clients c ON c.id = cc.client_id
+    WHERE cc.email IS NOT NULL AND cc.email != ''
+      AND c.is_deleted = 0
+    ORDER BY c.name, cc.is_primary DESC, cc.first_name
+  `).all() as Array<{
+    id: string;
+    client_id: string;
+    client_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    full_name: string | null;
+    email: string;
+    is_primary: number;
+  }>;
+
+  return rows.map(r => ({
+    id:          r.id,
+    client_id:   r.client_id,
+    client_name: r.client_name ?? '',
+    first_name:  r.first_name  ?? null,
+    last_name:   r.last_name   ?? null,
+    full_name:   (r.full_name  ?? '').trim(),
+    email:       r.email,
+    is_primary:  r.is_primary === 1,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // DB lifecycle
 // ---------------------------------------------------------------------------
