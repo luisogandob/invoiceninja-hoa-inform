@@ -53,6 +53,19 @@ function buildCompanyInfo(db: ReturnType<typeof createDb>): CompanyInfo {
 }
 
 /**
+ * Sanitize a string for use as a filename component.
+ * Replaces characters that are not alphanumeric or Latin extended with underscores,
+ * collapses consecutive underscores, and strips leading/trailing underscores.
+ */
+function sanitizeFilename(name: string): string {
+  return name
+    .replace(/[^a-zA-Z0-9\u00C0-\u024F]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+
+/**
  * Load the documentation markdown from REPORT_DOCS_PATH (default: ./report-docs.md).
  * Returns an empty string if the file does not exist.
  */
@@ -261,10 +274,7 @@ class HOAInformAutomation {
       const pdfBuffer = await this.hoaReportGenerator.generatePdf(reportData);
 
       // Build the PDF filename: CompanyName_InformeHOA_YYYYMMDD-YYYYMMDD.pdf
-      const safeCompanyName = (reportData.companyInfo?.name || 'HOA')
-        .replace(/[^a-zA-Z0-9\u00C0-\u024F]/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_|_$/g, '');
+      const safeCompanyName = sanitizeFilename(reportData.companyInfo?.name || 'HOA');
       const pdfFilename = `${safeCompanyName}_InformeHOA_${format(dateRange.start, 'yyyyMMdd')}-${format(dateRange.end, 'yyyyMMdd')}.pdf`;
 
       if (saveToFile) {
@@ -574,6 +584,7 @@ async function main(): Promise<void> {
       }
 
       // Optional: "email <address>" after the period
+      // args[0]=command, args[1]=period → search for 'email' keyword starting at index 2
       let emailTo: string | undefined;
       const emailKeywordIdx = args.indexOf('email', 2);
       if (emailKeywordIdx !== -1) {
