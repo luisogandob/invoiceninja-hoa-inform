@@ -5,7 +5,7 @@ import HOAExpenseAutomation from './index.js';
  * This file demonstrates different ways to use the automation
  */
 
-// Example 1: Generate report for current month
+// Example 1: Generate report for current month and send to all contacts
 async function example1(): Promise<void> {
   console.log('\n=== Example 1: Current Month Report ===');
   const automation = new HOAExpenseAutomation();
@@ -13,6 +13,7 @@ async function example1(): Promise<void> {
   try {
     const result = await automation.generateAndSendReport({
       period: 'current-month',
+      deliveryMode: 'email-all',
       saveToFile: true,
       outputPath: './reports/current-month-report.pdf'
     });
@@ -23,7 +24,7 @@ async function example1(): Promise<void> {
   }
 }
 
-// Example 2: Generate report for last month
+// Example 2: Generate report for last month and send to all contacts
 async function example2(): Promise<void> {
   console.log('\n=== Example 2: Last Month Report ===');
   const automation = new HOAExpenseAutomation();
@@ -31,6 +32,7 @@ async function example2(): Promise<void> {
   try {
     const result = await automation.generateAndSendReport({
       period: 'last-month',
+      deliveryMode: 'email-all',
       saveToFile: true
     });
     console.log('Success:', result.message);
@@ -39,9 +41,9 @@ async function example2(): Promise<void> {
   }
 }
 
-// Example 3: Generate report with custom date range
+// Example 3: Generate report with custom date range and upload only (no email)
 async function example3(): Promise<void> {
-  console.log('\n=== Example 3: Custom Date Range ===');
+  console.log('\n=== Example 3: Custom Date Range (attach only) ===');
   const automation = new HOAExpenseAutomation();
   
   try {
@@ -51,6 +53,7 @@ async function example3(): Promise<void> {
         start: '2024-01-01',
         end: '2024-01-31'
       },
+      deliveryMode: 'attach',
       saveToFile: true
     });
     console.log('Success:', result.message);
@@ -81,6 +84,7 @@ async function example5(): Promise<void> {
   try {
     const result = await automation.generateAndSendReport({
       period: 'current-month',
+      deliveryMode: 'email-single',
       singleRecipient: 'board-members@hoa.example.com',
       saveToFile: false
     });
