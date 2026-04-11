@@ -245,7 +245,7 @@ EMAIL_SECURE=false
 EMAIL_USER=user@example.com
 EMAIL_PASSWORD=password
 EMAIL_FROM=sender@example.com
-EMAIL_TO=recipients@example.com
+EMAIL_SUMMARIZE_TO=admin@example.com
 
 # Report Settings
 REPORT_TITLE=HOA Financial Report

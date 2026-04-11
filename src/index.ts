@@ -232,7 +232,8 @@ function readDocsMarkdown(): string {
 export interface ReportOptions {
   period?: PeriodType;
   customRange?: CustomRange | null;
-  emailTo?: string | null;
+  /** When set, the report is sent ONLY to this address instead of all contacts. */
+  singleRecipient?: string | null;
   saveToFile?: boolean;
   outputPath?: string;
 }
@@ -341,9 +342,11 @@ class HOAInformAutomation {
    *  1. Generate the PDF from the local SQLite cache.
    *  2. Save the PDF to disk (when `saveToFile` is true).
    *  3. Upload the PDF to Invoice Ninja as a public company document.
-   *  4. Send the report email to every client contact that has an email address.
-   *  5. Send an operator summary email (with delivery table + PDF) to `emailTo`
-   *     or the `EMAIL_TO` env variable.
+   *  4. Send the report email:
+   *       - If `singleRecipient` is provided: send ONLY to that address.
+   *       - Otherwise: send to every client contact that has an email address.
+   *  5. Send an operator summary email (with delivery table + PDF) to the
+   *     `EMAIL_SUMMARIZE_TO` env variable.
    *
    * Reads all data from the local SQLite cache — does NOT call the Invoice
    * Ninja API.  Run `syncData()` first to populate the cache.
@@ -352,7 +355,7 @@ class HOAInformAutomation {
     const {
       period = (process.env.REPORT_PERIOD as PeriodType) || 'current-month',
       customRange = null,
-      emailTo = null,
+      singleRecipient = null,
       saveToFile = false,
       outputPath = './hoa-report.pdf'
     } = options;
@@ -450,7 +453,7 @@ class HOAInformAutomation {
         console.warn('   ⚠️  ID de empresa no disponible — omitiendo subida a Invoice Ninja');
       }
 
-      // ── Step 3: Send report email to each contact ─────────────────────────
+      // ── Step 3: Send report email ─────────────────────────────────────────
       const periodString = formatPeriodString(period, dateRange);
       const emailSubject = `${reportTitle} — ${periodString}`;
       const emailText = [
@@ -460,56 +463,94 @@ class HOAInformAutomation {
         'Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.',
       ].join('\n');
 
-      console.log(`\n📧 [3/4] Enviando correos a contactos (${contacts.length} destinatario(s))...`);
-
       const deliveryLog: DeliveryLogEntry[] = [];
 
-      if (contacts.length === 0) {
-        console.log('   ℹ️  No se encontraron contactos con correo registrado.');
-      }
-
-      for (let i = 0; i < contacts.length; i++) {
-        const contact = contacts[i];
-        const prefix  = `   [${i + 1}/${contacts.length}]`;
-
+      if (singleRecipient) {
+        // Send ONLY to the specified address — skip contact list
+        console.log(`\n📧 [3/4] Enviando correo a destinatario específico: ${singleRecipient}...`);
         try {
           const html = await buildReportEmailHtml({
-            companyInfo:   reportData.companyInfo,
+            companyInfo: reportData.companyInfo,
             reportTitle,
             periodString,
-            recipientName: contact.full_name || undefined,
           });
-
           await this.emailSender.sendFinancialReport({
-            to:          contact.email,
-            subject:     emailSubject,
-            text:        emailText,
+            to:      singleRecipient,
+            subject: emailSubject,
+            text:    emailText,
             html,
             pdfBuffer,
             pdfFilename,
           });
-
-          const sentAt = new Date();
           deliveryLog.push({
-            clientName:  contact.client_name,
-            contactName: contact.full_name,
-            email:       contact.email,
-            sentAt,
+            clientName:  '—',
+            contactName: undefined,
+            email:       singleRecipient,
+            sentAt:      new Date(),
             status:      'ok',
           });
-          console.log(`${prefix} ✓ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} (${contact.client_name})`);
+          console.log(`   ✓ ${singleRecipient}`);
         } catch (mailErr) {
-          const sentAt = new Date();
           const errMsg = (mailErr as Error).message;
           deliveryLog.push({
-            clientName:  contact.client_name,
-            contactName: contact.full_name,
-            email:       contact.email,
-            sentAt,
+            clientName:  '—',
+            contactName: undefined,
+            email:       singleRecipient,
+            sentAt:      new Date(),
             status:      'error',
             error:       errMsg,
           });
-          console.warn(`${prefix} ✗ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} — ${errMsg}`);
+          console.warn(`   ✗ ${singleRecipient} — ${errMsg}`);
+        }
+      } else {
+        // Send to every registered contact
+        console.log(`\n📧 [3/4] Enviando correos a contactos (${contacts.length} destinatario(s))...`);
+
+        if (contacts.length === 0) {
+          console.log('   ℹ️  No se encontraron contactos con correo registrado.');
+        }
+
+        for (let i = 0; i < contacts.length; i++) {
+          const contact = contacts[i];
+          const prefix  = `   [${i + 1}/${contacts.length}]`;
+
+          try {
+            const html = await buildReportEmailHtml({
+              companyInfo:   reportData.companyInfo,
+              reportTitle,
+              periodString,
+              recipientName: contact.full_name || undefined,
+            });
+
+            await this.emailSender.sendFinancialReport({
+              to:      contact.email,
+              subject: emailSubject,
+              text:    emailText,
+              html,
+              pdfBuffer,
+              pdfFilename,
+            });
+
+            deliveryLog.push({
+              clientName:  contact.client_name,
+              contactName: contact.full_name,
+              email:       contact.email,
+              sentAt:      new Date(),
+              status:      'ok',
+            });
+            console.log(`${prefix} ✓ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} (${contact.client_name})`);
+          } catch (mailErr) {
+            const errMsg = (mailErr as Error).message;
+            deliveryLog.push({
+              clientName:  contact.client_name,
+              contactName: contact.full_name,
+              email:       contact.email,
+              sentAt:      new Date(),
+              status:      'error',
+              error:       errMsg,
+            });
+            console.warn(`${prefix} ✗ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} — ${errMsg}`);
+          }
         }
       }
 
@@ -526,11 +567,12 @@ class HOAInformAutomation {
         reportData.companyInfo,
         pdfFilename,
       );
+      const totalRecipients = singleRecipient ? 1 : contacts.length;
       const summarySubject = `${reportTitle} — Resumen de envíos (${periodString})`;
       const summaryText = [
         `Resumen de envíos: ${reportTitle} — ${periodString}`,
         '',
-        `Total destinatarios: ${contacts.length}`,
+        `Total destinatarios: ${totalRecipients}`,
         `Enviados exitosamente: ${sentOk}`,
         `Errores: ${sentErr}`,
         '',
@@ -538,7 +580,6 @@ class HOAInformAutomation {
       ].join('\n');
 
       await this.emailSender.sendFinancialReport({
-        to:          emailTo || undefined,
         subject:     summarySubject,
         text:        summaryText,
         html:        summaryHtml,
@@ -813,22 +854,22 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
-      // Optional: "email <address>" after the period — overrides EMAIL_TO for the summary email.
-      // Individual contact emails always go to every registered contact in the DB.
-      let emailTo: string | undefined;
+      // Optional: "email <address>" after the period — sends the report ONLY to
+      // that address instead of all registered contacts.
+      let singleRecipient: string | undefined;
       const emailKeywordIdx = args.indexOf('email', 2);
       if (emailKeywordIdx !== -1) {
-        emailTo = args[emailKeywordIdx + 1];
-        if (!emailTo) {
+        singleRecipient = args[emailKeywordIdx + 1];
+        if (!singleRecipient) {
           console.error('✗ Error: Debe especificar el email destinatario después de "email".\n');
-          console.error('  Uso: npm start report <período> email <destinatario-resumen>');
+          console.error('  Uso: npm start report <período> email <destinatario>');
           process.exit(1);
         }
       }
 
       const result = await automation.generateAndSendReport({
         period,
-        emailTo: emailTo || null,
+        singleRecipient: singleRecipient || null,
         saveToFile: true
       });
       if (result.stats) {
@@ -856,16 +897,16 @@ function printUsage(): void {
   console.log('  npm start test                                         - Probar conexiones');
   console.log('  npm start test-email <email>                           - Enviar email de prueba');
   console.log('  npm start test-inform [período]                        - Previsualizar reporte (sin email, usa caché)');
-  console.log('  npm start report <período>                             - Generar PDF, subir a IN, enviar a contactos y resumen a EMAIL_TO');
-  console.log('  npm start report <período> email <destinatario>        - Igual, pero el resumen se envía a <destinatario>');
+  console.log('  npm start report <período>                             - Generar PDF, subir a IN, enviar a todos los contactos y resumen a EMAIL_SUMMARIZE_TO');
+  console.log('  npm start report <período> email <destinatario>        - Generar PDF, subir a IN, enviar SOLO a <destinatario> y resumen a EMAIL_SUMMARIZE_TO');
   console.log('');
   console.log('  Períodos: last-month, current-month, current-year, last-year');
   console.log('');
   console.log('  El comando "report" siempre:');
   console.log('    1. Genera el PDF del informe');
   console.log('    2. Sube el PDF a Invoice Ninja como documento público de empresa');
-  console.log('    3. Envía el informe a cada contacto con correo registrado en el caché');
-  console.log('    4. Envía un correo resumen al operador (EMAIL_TO) con tabla de envíos y el PDF adjunto');
+  console.log('    3. Envía el informe a cada contacto con correo registrado (o solo al destinatario especificado con "email <addr>")');
+  console.log('    4. Envía un correo resumen al operador (EMAIL_SUMMARIZE_TO) con tabla de envíos y el PDF adjunto');
   console.log('');
   console.log('  Flujo recomendado:');
   console.log('    1. npm start sync                        ← poblar/actualizar el caché');

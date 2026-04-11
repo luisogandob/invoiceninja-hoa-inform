@@ -50,7 +50,7 @@ EMAIL_SECURE=false
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
 EMAIL_FROM=hoa@yourdomain.com
-EMAIL_TO=recipients@yourdomain.com
+EMAIL_SUMMARIZE_TO=admin@yourdomain.com
 ```
 
 **Note**: For Gmail, you need to:

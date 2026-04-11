@@ -39,7 +39,7 @@ class EmailSender {
 
   constructor() {
     this.from = process.env.EMAIL_FROM || '';
-    this.defaultTo = process.env.EMAIL_TO || '';
+    this.defaultTo = process.env.EMAIL_SUMMARIZE_TO || '';
   }
 
   /**

@@ -101,7 +101,7 @@ Edit `.env` and set your configuration:
 | `EMAIL_USER` | SMTP username | `your-email@example.com` |
 | `EMAIL_PASSWORD` | SMTP password | `your-password` |
 | `EMAIL_FROM` | Sender email address | `hoa@example.com` |
-| `EMAIL_TO` | Default recipient email(s) | `recipients@example.com` |
+| `EMAIL_SUMMARIZE_TO` | Recipient for the operator summary email | `admin@example.com` |
 | `REPORT_TITLE` | Report title | `HOA Financial Report` |
 | `REPORT_PERIOD` | Default report period | `current-month` |
 

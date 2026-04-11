@@ -73,7 +73,7 @@ async function example4(): Promise<void> {
   }
 }
 
-// Example 5: Generate report and send to specific email
+// Example 5: Generate report and send to a specific email address only
 async function example5(): Promise<void> {
   console.log('\n=== Example 5: Send to Specific Email ===');
   const automation = new HOAExpenseAutomation();
@@ -81,7 +81,7 @@ async function example5(): Promise<void> {
   try {
     const result = await automation.generateAndSendReport({
       period: 'current-month',
-      emailTo: 'board-members@hoa.example.com',
+      singleRecipient: 'board-members@hoa.example.com',
       saveToFile: false
     });
     console.log('Success:', result.message);
