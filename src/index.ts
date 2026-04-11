@@ -471,9 +471,6 @@ class HOAInformAutomation {
       for (let i = 0; i < contacts.length; i++) {
         const contact = contacts[i];
         const prefix  = `   [${i + 1}/${contacts.length}]`;
-        const label   = contact.full_name
-          ? `${contact.full_name} <${contact.email}>`
-          : contact.email;
 
         try {
           const html = await buildReportEmailHtml({
@@ -500,7 +497,7 @@ class HOAInformAutomation {
             sentAt,
             status:      'ok',
           });
-          console.log(`${prefix} ✓ ${label} (${contact.client_name})`);
+          console.log(`${prefix} ✓ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} (${contact.client_name})`);
         } catch (mailErr) {
           const sentAt = new Date();
           const errMsg = (mailErr as Error).message;
@@ -512,7 +509,7 @@ class HOAInformAutomation {
             status:      'error',
             error:       errMsg,
           });
-          console.warn(`${prefix} ✗ ${label} — ${errMsg}`);
+          console.warn(`${prefix} ✗ ${contact.full_name ? `${contact.full_name} <${contact.email}>` : contact.email} — ${errMsg}`);
         }
       }
 

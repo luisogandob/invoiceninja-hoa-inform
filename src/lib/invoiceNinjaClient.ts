@@ -471,7 +471,7 @@ class InvoiceNinjaClient {
       );
       return response.data;
     } catch (error) {
-      console.error('Error uploading company document:', (error as Error).message);
+      console.error(`Error uploading company document "${filename}" to company ${companyId}:`, (error as Error).message);
       throw error;
     }
   }
