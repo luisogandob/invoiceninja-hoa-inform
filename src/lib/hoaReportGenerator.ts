@@ -535,7 +535,7 @@ class HoaReportGenerator {
           const othersCount   = arClientOthers.reduce((s, c) => s + c.invoiceCount, 0);
           const othersBalance = arClientOthers.reduce((s, c) => s + c.balance, 0);
           return `<tr>
-                <td>Otros…</td>
+                <td>1 Factura o Menos</td>
                 <td class="amount-col">${othersCount}</td>
                 <td class="amount-col">$${fmt(othersBalance)}</td>
               </tr>`;
