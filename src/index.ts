@@ -79,7 +79,7 @@ function esc(s: string): string {
  */
 interface DeliveryLogEntry {
   clientName:  string;
-  contactName: string;
+  contactName?: string;
   email:       string;
   sentAt:      Date;
   status:      'ok' | 'error';
