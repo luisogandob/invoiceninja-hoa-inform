@@ -953,7 +953,24 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   } catch (error) {
-    console.error('\n✗ Error:', (error as Error).message);
+    // Print the primary error message
+    console.error('\n✗ Error:', (error as Error).message ?? error);
+
+    // When the error comes from Axios, surface the HTTP status and response body
+    // so the cause is always visible without needing a separate debug run.
+    const axiosResp = (error as any)?.response;
+    if (axiosResp) {
+      console.error(
+        `   HTTP ${axiosResp.status} ${axiosResp.config?.url ?? ''}`,
+        '\n  ', JSON.stringify(axiosResp.data).slice(0, 800)
+      );
+    }
+
+    // Always print the stack trace so the call site is identifiable
+    if ((error as Error).stack) {
+      console.error((error as Error).stack);
+    }
+
     process.exit(1);
   }
 }

@@ -305,6 +305,31 @@ class InvoiceNinjaClient {
         'Accept': 'application/json'
       }
     });
+
+    if (process.env.DEBUG === 'true' || process.env.DEBUG === '1') {
+      this.client.interceptors.request.use(config => {
+        const params = config.params ? ` params=${JSON.stringify(config.params)}` : '';
+        console.log(`[DEBUG] → ${config.method?.toUpperCase()} ${config.baseURL ?? ''}${config.url ?? ''}${params}`);
+        return config;
+      });
+      this.client.interceptors.response.use(
+        response => {
+          const preview = typeof response.data === 'object'
+            ? JSON.stringify(response.data).slice(0, 300)
+            : String(response.data).slice(0, 300);
+          console.log(`[DEBUG] ← ${response.status} ${response.config.url ?? ''} | ${preview}`);
+          return response;
+        },
+        error => {
+          const status  = error.response?.status ?? 'no-response';
+          const body    = error.response?.data
+            ? JSON.stringify(error.response.data).slice(0, 500)
+            : error.message;
+          console.error(`[DEBUG] ✗ ${status} ${error.config?.url ?? ''} | ${body}`);
+          return Promise.reject(error);
+        }
+      );
+    }
   }
 
   /**
