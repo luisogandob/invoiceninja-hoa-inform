@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { format } from 'date-fns';
 import type InvoiceNinjaClient from './invoiceNinjaClient.js';
-import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
+import type { Invoice, Payment, Expense, Client, ClientGroup, InvoiceNinjaCompany } from './invoiceNinjaClient.js';
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -237,6 +237,11 @@ export interface DbQueryResult {
    * Used to determine when each invoice was fully paid for the payment heatmap.
    */
   invoiceLastPaymentDate: Record<string, string>;
+  /**
+   * Maps client_id → primary contact full name.
+   * Used to display the primary contact name in the AR client breakdown table.
+   */
+  primaryContactByClientId: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +323,30 @@ function saveSyncMeta(db: InstanceType<typeof Database>, meta: SyncMeta): void {
   })();
 }
 
+/**
+ * Persist the Invoice Ninja company profile in the `sync_meta` key-value table
+ * so it can be retrieved without an API call when generating reports.
+ */
+function saveCompanyProfileToDb(db: InstanceType<typeof Database>, company: InvoiceNinjaCompany): void {
+  db.prepare("INSERT OR REPLACE INTO sync_meta(key, value) VALUES (?, ?)")
+    .run('company_profile', JSON.stringify(company));
+}
+
+/**
+ * Retrieve the cached Invoice Ninja company profile from the database.
+ * Returns `null` when no profile has been synced yet.
+ */
+export function getCompanyProfileFromDb(db: InstanceType<typeof Database>): InvoiceNinjaCompany | null {
+  const row = db.prepare("SELECT value FROM sync_meta WHERE key = 'company_profile'")
+    .get() as { value: string } | undefined;
+  if (!row?.value) return null;
+  try {
+    return JSON.parse(row.value) as InvoiceNinjaCompany;
+  } catch {
+    return null;
+  }
+}
+
 /** Truncate all data tables (keeps schema, indexes and sync_meta intact). */
 function clearDataTables(db: InstanceType<typeof Database>): void {
   db.transaction(() => {
@@ -377,7 +406,8 @@ function resolveDate(
  *  5. Client groups
  *  6. Vendors
  *  7. Expense categories
- *  (8) Save sync metadata
+ *  8. Company profile
+ *  (9) Save sync metadata
  *
  * @param db        Open SQLite database created with `createDb()`.
  * @param client    Invoice Ninja API client.
@@ -455,8 +485,8 @@ export async function syncDb(
     return `      → Página ${page}${ofStr} (${fetched} registros acumulados)`;
   }
 
-  // 1/7 — Invoices
-  onProgress(`[1/7] Descargando facturas...`);
+  // 1/8 — Invoices
+  onProgress(`[1/8] Descargando facturas...`);
   const invoices = await client.getInvoices(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -477,8 +507,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${invoices.length} facturas almacenadas`);
 
-  // 2/7 — Payments (paymentables stored in a separate table)
-  onProgress(`[2/7] Descargando pagos...`);
+  // 2/8 — Payments (paymentables stored in a separate table)
+  onProgress(`[2/8] Descargando pagos...`);
   const payments = await client.getPayments(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -511,8 +541,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${payments.length} pagos almacenados`);
 
-  // 3/7 — Expenses
-  onProgress(`[3/7] Descargando gastos...`);
+  // 3/8 — Expenses
+  onProgress(`[3/8] Descargando gastos...`);
   const expenses = await client.getExpenses(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -535,8 +565,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${expenses.length} gastos almacenados`);
 
-  // 4/7 — Clients + Contacts
-  onProgress(`[4/7] Descargando clientes y contactos...`);
+  // 4/8 — Clients + Contacts
+  onProgress(`[4/8] Descargando clientes y contactos...`);
   const clientList = await client.getClients(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -570,8 +600,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${clientList.length} clientes, ${contactCount} contactos almacenados`);
 
-  // 5/7 — Client groups
-  onProgress(`[5/7] Descargando grupos de clientes...`);
+  // 5/8 — Client groups
+  onProgress(`[5/8] Descargando grupos de clientes...`);
   const clientGroups = await client.getClientGroups(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -583,8 +613,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${clientGroups.length} grupos almacenados`);
 
-  // 6/7 — Vendors
-  onProgress(`[6/7] Descargando proveedores...`);
+  // 6/8 — Vendors
+  onProgress(`[6/8] Descargando proveedores...`);
   const vendors = await client.getVendors(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -596,8 +626,8 @@ export async function syncDb(
   })();
   onProgress(`      ✓ ${vendors.length} proveedores almacenados`);
 
-  // 7/7 — Expense categories
-  onProgress(`[7/7] Descargando categorías de gastos...`);
+  // 7/8 — Expense categories
+  onProgress(`[7/8] Descargando categorías de gastos...`);
   const categories = await client.getExpenseCategories(
     { ...baseFilters },
     (page, total, fetched) => onProgress(pageMsg(page, total, fetched))
@@ -608,6 +638,16 @@ export async function syncDb(
     }
   })();
   onProgress(`      ✓ ${categories.length} categorías almacenadas`);
+
+  // 8/8 — Company profile (name, address, logo, etc.)
+  onProgress(`[8/8] Descargando perfil de empresa...`);
+  const company = await client.getCompanyProfile();
+  if (company) {
+    saveCompanyProfileToDb(db, company);
+    onProgress(`      ✓ Perfil de empresa almacenado (${company.settings?.name ?? company.id})`);
+  } else {
+    onProgress(`      ℹ️  No se pudo obtener el perfil de empresa (se ignorará)`);
+  }
 
   // Persist sync metadata
   const completedAt = new Date().toISOString();
@@ -773,6 +813,18 @@ export function queryForReport(
     SELECT * FROM client_groups
   `).all() as ClientGroupRow[]).map(rowToClientGroup);
 
+  // Primary contacts: one row per client (is_primary = 1)
+  const primaryContactByClientId = Object.fromEntries(
+    (db.prepare(`
+      SELECT client_id,
+             TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')) AS full_name
+      FROM client_contacts
+      WHERE is_primary = 1
+    `).all() as Array<{ client_id: string; full_name: string }>)
+      .filter(r => r.full_name.trim())
+      .map(r => [r.client_id, r.full_name.trim()])
+  );
+
   return {
     allInvoices,
     periodInvoices,
@@ -800,6 +852,7 @@ export function queryForReport(
         .filter(r => r.paid_date)
         .map(r => [r.invoice_id, r.paid_date])
     ),
+    primaryContactByClientId,
   };
 }
 

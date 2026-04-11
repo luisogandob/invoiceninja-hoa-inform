@@ -2,6 +2,29 @@ import { parseISO, isBefore, isAfter, isEqual, differenceInDays } from 'date-fns
 import type { Invoice, Payment, Expense, Client, ClientGroup } from './invoiceNinjaClient.js';
 
 /**
+ * Company branding and contact information displayed on the cover page.
+ * All fields are optional — only populated fields will appear in the report.
+ */
+export interface CompanyInfo {
+  /** Company / HOA name */
+  name?: string;
+  /** RNC (Registro Nacional del Contribuyente) or tax ID */
+  rnc?: string;
+  /** Public website URL */
+  website?: string;
+  /** Contact e-mail address */
+  email?: string;
+  /** Physical address */
+  address?: string;
+  /**
+   * URL or local file path to the company logo.
+   * The generator will fetch/read this and embed it as a base64 data URI so
+   * the PDF renderer does not need external network access.
+   */
+  logoUrl?: string;
+}
+
+/**
  * Aggregated data needed to build the HOA income report.
  */
 export interface HoaReportData {
@@ -117,6 +140,19 @@ export interface HoaReportData {
    * Computed as: perpetualResult + initialBalance (from INITIAL_BANK_BALANCE env var).
    */
   bankBalance: number;
+
+  /**
+   * Company branding and contact info displayed on the cover page.
+   * Populated from COMPANY_* env vars in index.ts.
+   */
+  companyInfo?: CompanyInfo;
+
+  /**
+   * Raw markdown string for the "Documentación del Informe" page.
+   * Loaded from the file at REPORT_DOCS_PATH (default: ./report-docs.md).
+   * If empty or undefined the docs page is omitted.
+   */
+  docsMarkdown?: string;
 }
 
 export interface PaymentsByGroup {
@@ -187,12 +223,12 @@ export interface ArByGroupUnit {
  */
 export interface ArByClient {
   clientName: string;
-  /** Client group name (for the Grupo column) */
-  groupName: string;
   /** Number of open invoices with a positive balance at period end */
   invoiceCount: number;
   /** Total outstanding balance for this client at period end */
   balance: number;
+  /** Full name of the primary contact for this client, if available */
+  contactName?: string;
 }
 
 /** Expense total for a single category within the period */
@@ -377,7 +413,8 @@ export function buildHoaReportData(
   allTimePaymentsTotal = 0,
   allTimeExpensesPaidTotal = 0,
   initialBalance = 0,
-  invoiceLastPaymentDate: Record<string, string> = {}
+  invoiceLastPaymentDate: Record<string, string> = {},
+  primaryContactByClientId: Record<string, string> = {}
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -654,7 +691,7 @@ export function buildHoaReportData(
   // --- AR by client (for per-client breakdown table) ---
   // Group invoicesIssuedByPeriodEnd by client, counting open invoices and summing balances.
   // Key: client_id when available, falling back to client_name string.
-  interface ClientARAccum { clientName: string; groupName: string; invoiceCount: number; balance: number; }
+  interface ClientARAccum { clientName: string; clientId?: string; invoiceCount: number; balance: number; }
   const arClientMap: Map<string, ClientARAccum> = new Map();
 
   invoicesIssuedByPeriodEnd.forEach(inv => {
@@ -665,8 +702,7 @@ export function buildHoaReportData(
       // Resolve display name: prefer the clients table, fall back to invoice fields
       const clientRecord = inv.client_id ? clientById.get(inv.client_id) : undefined;
       const displayName = clientRecord?.name ?? inv.client_name ?? inv.client?.name ?? key;
-      const groupName   = resolveGroup(inv.client_id, inv.client_name || inv.client?.name);
-      arClientMap.set(key, { clientName: displayName, groupName, invoiceCount: 0, balance: 0 });
+      arClientMap.set(key, { clientName: displayName, clientId: inv.client_id, invoiceCount: 0, balance: 0 });
     }
     const entry = arClientMap.get(key)!;
     entry.invoiceCount += 1;
@@ -674,7 +710,13 @@ export function buildHoaReportData(
   });
 
   const arByClient: ArByClient[] = Array.from(arClientMap.values())
-    .sort((a, b) => b.balance - a.balance);
+    .sort((a, b) => b.balance - a.balance)
+    .map(c => ({
+      clientName:  c.clientName,
+      invoiceCount: c.invoiceCount,
+      balance:      c.balance,
+      contactName:  c.clientId ? primaryContactByClientId[c.clientId] : undefined,
+    }));
 
   // --- Accounts payable ---
   //   1. It was created on or before the boundary (expense.date ≤ boundary), AND

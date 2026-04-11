@@ -1,7 +1,8 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import { format } from 'date-fns';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { createRequire } from 'module';
+import axios from 'axios';
 import type { HoaReportData } from './hoaReportData.js';
 
 const _require = createRequire(import.meta.url);
@@ -111,9 +112,11 @@ function getColorData(): Record<string, Record<string, string[]>> {
 class HoaReportGenerator {
   private browser: Browser | null = null;
   private readonly colorScheme: string;
+  private readonly cxcContactMinInvoices: number;
 
   constructor() {
     this.colorScheme = process.env.CHART_COLOR_SCHEME ?? 'brewer.Paired12';
+    this.cxcContactMinInvoices = parseInt(process.env.CXC_CONTACT_MIN_INVOICES ?? '3', 10) || 3;
   }
 
   private async getBrowser(): Promise<Browser> {
@@ -127,7 +130,13 @@ class HoaReportGenerator {
   }
 
   async generatePdf(data: HoaReportData): Promise<Buffer> {
-    const html = this.buildHtml(data);
+    // Fetch / load the company logo as a base64 data URI before rendering
+    let logoDataUri: string | undefined;
+    if (data.companyInfo?.logoUrl) {
+      logoDataUri = await this.fetchLogoAsDataUri(data.companyInfo.logoUrl);
+    }
+
+    const html = this.buildHtml(data, logoDataUri);
     const browser = await this.getBrowser();
 
     const page = await browser.newPage();
@@ -173,6 +182,131 @@ class HoaReportGenerator {
   // HTML builder
   // ---------------------------------------------------------------------------
 
+  /**
+   * Fetch a logo from a URL or local file path and return it as a base64 data URI
+   * so the PDF renderer can embed it without additional network requests.
+   * Returns undefined if the logo cannot be loaded (logs a warning).
+   */
+  private async fetchLogoAsDataUri(url: string): Promise<string | undefined> {
+    /** Allowed image MIME types for the logo */
+    const ALLOWED_IMAGE_MIMES = new Set([
+      'image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'
+    ]);
+    const ALLOWED_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']);
+
+    try {
+      // Already a data URI — validate it is an image type
+      if (url.startsWith('data:')) {
+        const mime = url.slice(5, url.indexOf(';'));
+        return ALLOWED_IMAGE_MIMES.has(mime) ? url : undefined;
+      }
+
+      // Local file path — restrict to allowed image extensions
+      if (existsSync(url)) {
+        const ext = url.toLowerCase().split('.').pop() ?? '';
+        if (!ALLOWED_IMAGE_EXTS.has(ext)) {
+          console.warn(`[HoaReportGenerator] Rejected logo path with disallowed extension: "${url}"`);
+          return undefined;
+        }
+        const buf = readFileSync(url);
+        const mimeMap: Record<string, string> = {
+          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+          gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp'
+        };
+        const mime = mimeMap[ext] ?? 'image/png';
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      }
+
+      // HTTP / HTTPS URL — cap response at 5 MB and validate content type
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        const response = await axios.get<ArrayBuffer>(url, {
+          responseType: 'arraybuffer',
+          timeout: 8_000,
+          maxContentLength: 5 * 1024 * 1024
+        });
+        const ct = (response.headers['content-type'] as string | undefined) ?? '';
+        const mime = ct.split(';')[0].trim();
+        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
+          console.warn(`[HoaReportGenerator] Rejected logo URL with disallowed content-type "${mime}": "${url}"`);
+          return undefined;
+        }
+        const base64 = Buffer.from(response.data).toString('base64');
+        return `data:${mime};base64,${base64}`;
+      }
+    } catch (err) {
+      console.warn(
+        `[HoaReportGenerator] Could not load logo from "${url}":`,
+        (err as Error).message
+      );
+    }
+    return undefined;
+  }
+
+  /**
+   * Convert a basic subset of Markdown to HTML.
+   * Supports: h1/h2/h3, **bold**, *italic*, `code`, unordered and ordered lists,
+   * blank-line paragraph breaks, and horizontal rules (---).
+   *
+   * Text content is HTML-escaped before applying inline formatting, so raw
+   * HTML in the Markdown source is rendered as text rather than executed.
+   */
+  private static parseMarkdown(md: string): string {
+    const lines = md.split('\n');
+    const html: string[] = [];
+    let inUl = false;
+    let inOl = false;
+
+    const closeUl = () => { if (inUl) { html.push('</ul>'); inUl = false; } };
+    const closeOl = () => { if (inOl) { html.push('</ol>'); inOl = false; } };
+    const closeLists = () => { closeUl(); closeOl(); };
+
+    /** Escape HTML special characters to prevent injection */
+    const esc = (t: string): string =>
+      t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+
+    /** Apply inline Markdown formatting to already-escaped text */
+    const inline = (text: string): string => {
+      const escaped = esc(text);
+      return escaped
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code>$1</code>');
+    };
+
+    for (const line of lines) {
+      if (line.startsWith('### ')) {
+        closeLists();
+        html.push(`<h3>${inline(line.slice(4))}</h3>`);
+      } else if (line.startsWith('## ')) {
+        closeLists();
+        html.push(`<h2>${inline(line.slice(3))}</h2>`);
+      } else if (line.startsWith('# ')) {
+        closeLists();
+        html.push(`<h1>${inline(line.slice(2))}</h1>`);
+      } else if (/^[-*] /.test(line)) {
+        closeOl();
+        if (!inUl) { html.push('<ul>'); inUl = true; }
+        html.push(`<li>${inline(line.slice(2))}</li>`);
+      } else if (/^\d+\. /.test(line)) {
+        closeUl();
+        if (!inOl) { html.push('<ol>'); inOl = true; }
+        html.push(`<li>${inline(line.replace(/^\d+\. /, ''))}</li>`);
+      } else if (/^-{3,}$/.test(line.trim()) || /^={3,}$/.test(line.trim())) {
+        closeLists();
+        html.push('<hr>');
+      } else if (line.trim() === '') {
+        closeLists();
+        html.push('<p style="margin:0;line-height:0.6em">&nbsp;</p>');
+      } else {
+        closeLists();
+        html.push(`<p>${inline(line)}</p>`);
+      }
+    }
+    closeLists();
+    return html.join('\n');
+  }
+
   // SVG icons (stroke-based, currentColor, heroicons style)
   private static readonly ICON_INVOICE = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>`;
   private static readonly ICON_PAYMENT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><line x1="12" y1="6" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="18"/></svg>`;
@@ -185,7 +319,7 @@ class HoaReportGenerator {
   /** Cash outflow — arrow pointing down (red) */
   private static readonly ICON_CASH_OUT = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 16 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>`;
 
-  buildHtml(data: HoaReportData): string {
+  buildHtml(data: HoaReportData, logoDataUri?: string): string {
     const {
       title,
       periodStart,
@@ -212,11 +346,30 @@ class HoaReportGenerator {
       cfDailyData,
       paymentHeatmap,
       perpetualResult,
-      bankBalance
+      bankBalance,
+      companyInfo,
+      docsMarkdown
     } = data;
+
+    // Validate that the logo data URI is safe to embed (must be an image type)
+    const safeLogoDataUri = logoDataUri?.startsWith('data:image/') ? logoDataUri : undefined;
 
     const fmt = (n: number) =>
       n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // ── Summary metrics for Resumen Ejecutivo first row ──────────────────────
+    /** Net result for the current period (payments received − expenses paid in period) */
+    const periodResult = totalPaymentsInPeriod - totalExpensesPaidInPeriod;
+    /** Collection rate: payments / invoiced × 100, or null when no invoices were issued */
+    const cobranzaPct = totalInvoicedInPeriod > 0
+      ? (totalPaymentsInPeriod / totalInvoicedInPeriod * 100).toFixed(1)
+      : null;
+    /** Outstanding AR that is older than 60 days (aged61_90 + aged90plus across all groups) */
+    const arMorosidad = arByGroup.reduce((s, g) => s + g.aged90plus, 0);
+    /** Formatted morosidad string "$$X (Y%)" or null when arAtPeriodEnd is 0 */
+    const arMorosidadStr = arAtPeriodEnd > 0
+      ? `$${fmt(arMorosidad)} (${(arMorosidad / arAtPeriodEnd * 100).toFixed(1)}%)`
+      : null;
 
     // ── Stacked chart data (serialised server-side for safe embedding) ──────
     const paymentsLabels  = JSON.stringify(paymentsByGroup.map(p => p.groupName));
@@ -269,7 +422,8 @@ class HoaReportGenerator {
       valueEnd: number,
       valueStart: number,
       colorCls: string,
-      available: boolean
+      available: boolean,
+      subHtml?: string
     ): string => {
       const lbl   = lines.map(l => this.esc(l)).join('<br>');
       const delta = valueEnd - valueStart;
@@ -287,6 +441,7 @@ class HoaReportGenerator {
         <div class="kpi-label">${lbl}</div>
         ${valueHtml}
         ${trendHtml}
+        ${subHtml ?? ''}
       </div>`;
     };
 
@@ -374,24 +529,27 @@ class HoaReportGenerator {
           <thead>
             <tr>
               <th>Cliente</th>
-              <th>Grupo</th>
               <th class="amount-col"># Facturas</th>
               <th class="amount-col">Monto</th>
             </tr>
           </thead>
           <tbody>
-            ${arByClient.map(c =>
-              `<tr>
-                <td>${this.esc(c.clientName)}</td>
-                <td>${this.esc(c.groupName)}</td>
-                <td class="amount-col">${c.invoiceCount}</td>
-                <td class="amount-col">$${fmt(c.balance)}</td>
-              </tr>`
-            ).join('\n            ')}
+            ${arByClient.map(c => {
+              const hasContact = c.invoiceCount >= this.cxcContactMinInvoices && !!c.contactName;
+              const contactRow = hasContact
+                ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName!)}</td></tr>`
+                : '';
+              const tdStyle = hasContact ? ' style="border-bottom:none"' : '';
+              return `<tr>
+                <td${tdStyle}>${this.esc(c.clientName)}</td>
+                <td class="amount-col"${tdStyle}>${c.invoiceCount}</td>
+                <td class="amount-col"${tdStyle}>$${fmt(c.balance)}</td>
+              </tr>${contactRow}`;
+            }).join('\n            ')}
           </tbody>
-          <tfoot>
+          <tfoot style="display:table-row-group">
             <tr>
-              <td class="total-label" colspan="2">Total</td>
+              <td class="total-label">Total</td>
               <td class="amount-col">${arClientTotalInvoices}</td>
               <td class="amount-col">$${fmt(arClientTotal)}</td>
             </tr>
@@ -639,22 +797,22 @@ class HoaReportGenerator {
           <td colspan="3" class="cf-total-label">Total de Pagos Realizados</td>
           <td class="cf-amount-cell cf-total-out">−$${fmt(cfTotalOut)}</td>
         </tr>
+        <tr class="cf-totals-row cf-result-total-row">
+          <td colspan="3" class="cf-total-label">Resultado del Período</td>
+          <td class="cf-amount-cell ${cfResult >= 0 ? 'cf-total-in' : 'cf-total-out'}">${cfResultSign}$${fmt(Math.abs(cfResult))}</td>
+        </tr>
       </tbody>
     </table>
-    <div class="cf-result-card ${perpetualResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
-      <div class="cf-result-card__label">Resultado del Período</div>
-      <div class="cf-result-card__amount">${cfResultSign}$${fmt(Math.abs(cfResult))}</div>
-    </div>
     <div class="chart-section" style="margin-top: 28px;">
       <div class="section-title">Balance Diario en Banco según Registros</div>
       <canvas id="chart-cf-daily" width="680" height="250"></canvas>
     </div>
-    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
-      <div class="cf-result-card__left">
-        <div class="cf-result-card__label">Balance en Banco</div>
-        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+    <div class="cf-bank-balance-row">
+      <div>
+        <div class="cf-bank-balance-label">Balance en Banco</div>
+        <div class="cf-bank-balance-sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
       </div>
-      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
+      <div class="cf-bank-balance-amount ${bankBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
     </div>`;
 
     return `<!DOCTYPE html>
@@ -664,7 +822,7 @@ class HoaReportGenerator {
   <title>${this.esc(title)}</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 8px; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1f2937; background: #fff; padding: 0; }
 
     /* ── Header ── */
     .report-header {
@@ -675,22 +833,24 @@ class HoaReportGenerator {
     }
     .report-header h1 { font-size: 24px; color: #1e2d3d; margin-bottom: 6px; font-weight: 700; }
     .report-header .meta { font-size: 12px; color: #6b7280; margin-top: 3px; }
+    /* Resumen Ejecutivo has many widgets — tighten the header to give more space */
+    #sec-resumen .report-header { padding-bottom: 10px; margin-bottom: 10px; }
 
     /* ── KPI section ── */
     .kpi-row1 {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 14px;
-      margin-bottom: 14px;
+      margin-bottom: 10px;
     }
     .kpi-row2 {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
       gap: 14px;
-      margin-bottom: 36px;
+      margin-bottom: 12px;
     }
     .kpi-item {
-      padding: 14px 16px;
+      padding: 10px 12px;
       border: 1px solid #e5e7eb;
       border-top: 3px solid #e5e7eb;
     }
@@ -701,7 +861,7 @@ class HoaReportGenerator {
     .kpi-sky    { border-top-color: #0284c7; }
     .kpi-violet { border-top-color: #7c3aed; }
     /* icon colors */
-    .kpi-icon { display: block; width: 24px; height: 24px; margin-bottom: 8px; }
+    .kpi-icon { display: block; width: 22px; height: 22px; margin-bottom: 4px; }
     .kpi-blue .kpi-icon   { color: #1d4ed8; }
     .kpi-green .kpi-icon  { color: #16a34a; }
     .kpi-amber .kpi-icon  { color: #b45309; }
@@ -715,10 +875,10 @@ class HoaReportGenerator {
       text-transform: uppercase;
       color: #6b7280;
       line-height: 1.5;
-      margin-bottom: 6px;
+      margin-bottom: 3px;
     }
     .kpi-value {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 700;
       color: #111827;
       letter-spacing: -0.5px;
@@ -741,18 +901,56 @@ class HoaReportGenerator {
     }
     .kpi-sub svg { width: 14px; height: 14px; flex-shrink: 0; }
 
+    /* ── Period-result cards (kpi-row0) side-by-side in Resumen Ejecutivo ── */
+    .kpi-row0 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    /* Resultado del Período total row inside CF table */
+    .cf-result-total-row td {
+      font-size: 13px;
+      border-top: 2px solid #374151 !important;
+    }
+    /* Bank balance row below the CF daily chart */
+    .cf-bank-balance-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 12px;
+      padding: 10px 16px;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 4px;
+    }
+    .cf-bank-balance-label {
+      font-size: 13px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+    .cf-bank-balance-sub {
+      font-size: 11px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+    .cf-bank-balance-amount {
+      font-size: 18px;
+      font-weight: 800;
+    }
+
     /* ── Section titles ── */
     .section-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: #1e2d3d;
-      margin-bottom: 14px;
-      padding-bottom: 6px;
+      margin-bottom: 8px;
+      padding-bottom: 4px;
       border-bottom: 2px solid #1e2d3d;
     }
 
     /* ── Chart wrapper ── */
-    .chart-section { margin-bottom: 16px; }
+    .chart-section { margin-bottom: 10px; }
     .chart-section canvas { display: block; margin: 0 auto; }
 
     /* ── No data ── */
@@ -842,7 +1040,7 @@ class HoaReportGenerator {
       align-items: center;
       justify-content: space-between;
       margin-top: 12px;
-      padding: 14px 20px;
+      padding: 14px 16px;
       border-radius: 8px;
       color: #fff;
     }
@@ -868,7 +1066,7 @@ class HoaReportGenerator {
       letter-spacing: 0;
     }
     .cf-result-card__amount {
-      font-size: 22px;
+      font-size: 18px;
       font-weight: 800;
       letter-spacing: -0.02em;
     }
@@ -892,7 +1090,7 @@ class HoaReportGenerator {
       white-space: nowrap;
     }
     /* Month-label first column */
-    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #374151; background: #f9fafb; }
+    .hm-month-col { width: 52px; text-align: left !important; padding: 0 4px; font-size: 9px; font-weight: 600; color: #6b7280; background: #f3f4f6; }
     /* Group header row */
     .hm-group-hdr { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #1e2d3d; background: #e0e7ef; padding: 4px 2px; }
     /* Unit header row */
@@ -902,10 +1100,10 @@ class HoaReportGenerator {
     /* Data cells */
     .hm-cell { height: 16px; padding: 0; }
     .hm-c-paid-0-35   { background: #22c55e; }   /* green            ≤35 d */
-    .hm-c-paid-36-60  { background: #86efac; }   /* light green    36-60 d */
-    .hm-c-paid-61-90  { background: #bef264; }   /* yellow-green   61-90 d */
-    .hm-c-paid-90plus { background: #fde047; }   /* yellow          >90 d  */
-    .hm-c-pending     { background: #fdba74; }   /* light orange — pending */
+    .hm-c-paid-36-60  { background: #84cc16; }   /* lime-green     36-60 d */
+    .hm-c-paid-61-90  { background: #a3e635; }   /* yellow-lime    61-90 d */
+    .hm-c-paid-90plus { background: #c9e000; }   /* yellow-green    >90 d  */
+    .hm-c-pending     { background: #ef4444; }   /* red            — pending */
     .hm-c-none        { background: #f3f4f6; }   /* light grey  — no invs  */
     /* Heatmap legend */
     .hm-legend {
@@ -918,9 +1116,224 @@ class HoaReportGenerator {
     }
     .hm-legend-item { display: flex; align-items: center; gap: 4px; }
     .hm-legend-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #d1d5db; flex-shrink: 0; }
+
+    /* ── Cover page ── */
+    @page cover-pg { size: A4 portrait; margin: 1.5cm; }
+    .page-cover {
+      page: cover-pg;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      height: 267mm;
+      padding: 40px 48px;
+      background: #f8fafc;
+    }
+    .cover-logo {
+      margin-bottom: 36px;
+    }
+    .cover-logo img {
+      max-width: 200px;
+      max-height: 120px;
+      object-fit: contain;
+    }
+    .cover-logo-placeholder {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      background: #e0e7ef;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+    }
+    .cover-company-name {
+      font-size: 26px;
+      font-weight: 800;
+      color: #1e2d3d;
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+    .cover-company-detail {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .cover-divider {
+      width: 80px;
+      height: 3px;
+      background: #1e2d3d;
+      margin: 28px auto;
+      border-radius: 2px;
+    }
+    .cover-report-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #1e2d3d;
+      margin-bottom: 10px;
+    }
+    .cover-period {
+      font-size: 13px;
+      color: #6b7280;
+      margin-bottom: 4px;
+    }
+    .cover-generated {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-top: 6px;
+    }
+
+    /* ── Table of contents (Índice) ── */
+    .page-toc { page-break-before: always; padding-top: 4px; }
+    .toc-list {
+      list-style: none;
+      margin-top: 18px;
+    }
+    .toc-list li {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      padding: 9px 0;
+      border-bottom: 1px dotted #d1d5db;
+      font-size: 13px;
+    }
+    .toc-list li:last-child { border-bottom: none; }
+    .toc-num {
+      min-width: 26px;
+      font-weight: 700;
+      color: #1e2d3d;
+    }
+    .toc-title { flex: 1; color: #1f2937; }
+    .toc-list a {
+      color: inherit;
+      text-decoration: none;
+    }
+    .toc-list a:hover { text-decoration: underline; }
+    .toc-sub {
+      padding: 5px 0 5px 28px;
+      font-size: 11.5px;
+      color: #6b7280;
+      border-bottom: 1px dotted #e5e7eb;
+    }
+    .toc-sub .toc-num { color: #9ca3af; font-weight: 400; min-width: 20px; }
+
+    /* ── Documentation page ── */
+    .page-docs { page-break-before: always; padding-top: 4px; }
+    .docs-content { font-size: 12px; line-height: 1.7; color: #1f2937; }
+    .docs-content h1 {
+      font-size: 18px; font-weight: 700; color: #1e2d3d;
+      margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid #1e2d3d;
+    }
+    .docs-content h2 {
+      font-size: 14px; font-weight: 700; color: #1e2d3d;
+      margin: 18px 0 6px; padding-bottom: 4px; border-bottom: 1px solid #e5e7eb;
+    }
+    .docs-content h3 {
+      font-size: 12px; font-weight: 700; color: #374151; margin: 14px 0 4px;
+    }
+    .docs-content p { margin: 0 0 6px; }
+    .docs-content ul, .docs-content ol {
+      margin: 0 0 8px; padding-left: 22px;
+    }
+    .docs-content li { margin-bottom: 3px; }
+    .docs-content strong { font-weight: 700; }
+    .docs-content em { font-style: italic; }
+    .docs-content code {
+      font-family: monospace; font-size: 11px;
+      background: #f3f4f6; padding: 1px 4px; border-radius: 3px;
+    }
+    .docs-content hr {
+      border: none; border-top: 1px solid #e5e7eb; margin: 16px 0;
+    }
+
+    /* ── Closing page ── */
+    @page closing-pg { size: A4 portrait; margin: 1.5cm; }
+    .page-closing {
+      page: closing-pg;
+      page-break-before: always;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 60px 48px;
+      height: 267mm;
+      background: #f8fafc;
+    }
+    .closing-logo img {
+      max-width: 120px;
+      max-height: 72px;
+      object-fit: contain;
+      margin-bottom: 24px;
+      opacity: 0.7;
+    }
+    .closing-company-name {
+      font-size: 18px; font-weight: 700; color: #1e2d3d; margin-bottom: 6px;
+    }
+    .closing-detail {
+      font-size: 12px; color: #6b7280; margin-bottom: 3px;
+    }
+    .closing-divider {
+      width: 60px; height: 2px; background: #1e2d3d;
+      margin: 20px auto; border-radius: 2px;
+    }
+    .closing-thanks {
+      font-size: 14px; font-weight: 600; color: #1e2d3d; margin-bottom: 6px;
+    }
+    .closing-generated {
+      font-size: 10px; color: #9ca3af; margin-top: 8px;
+    }
   </style>
 </head>
 <body>
+
+  <!-- ══ Página 0: Portada ══ -->
+  <div class="page-cover">
+    <div class="cover-logo">
+      ${safeLogoDataUri
+        ? `<img src="${safeLogoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}">`
+        : `<div class="cover-logo-placeholder"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#9ca3af" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>`
+      }
+    </div>
+    ${companyInfo?.name ? `<div class="cover-company-name">${this.esc(companyInfo.name)}</div>` : ''}
+    ${companyInfo?.rnc     ? `<div class="cover-company-detail">RNC: ${this.esc(companyInfo.rnc)}</div>` : ''}
+    ${companyInfo?.website ? `<div class="cover-company-detail">${this.esc(companyInfo.website)}</div>` : ''}
+    ${companyInfo?.email   ? `<div class="cover-company-detail">${this.esc(companyInfo.email)}</div>` : ''}
+    ${companyInfo?.address ? `<div class="cover-company-detail">${this.esc(companyInfo.address)}</div>` : ''}
+    <div class="cover-divider"></div>
+    <div class="cover-report-title">${this.esc(title)}</div>
+    <div class="cover-period">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    <div class="cover-generated">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
+  </div>
+
+  <!-- ══ Página 1: Índice ══ -->
+  <div class="page-toc">
+    <div class="report-header">
+      <h1>Índice</h1>
+    </div>
+    <ul class="toc-list">
+      <li><span class="toc-num">1.</span><span class="toc-title"><a href="#sec-resumen">Resumen Ejecutivo</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sec-resumen">Indicadores del Período</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-pagos">Pagos Recibidos por Grupo de Clientes</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-cxc">CxC al Final del Período por Unidad Vivienda</a></span></li>
+      <li><span class="toc-num">2.</span><span class="toc-title"><a href="#sec-heatmap">Comportamiento Histórico de Pagos</a></span></li>
+      <li><span class="toc-num">3.</span><span class="toc-title"><a href="#sec-gastos">Análisis de Gastos</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-cat">Categoría de Gastos en el Período</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-suplidor">Gastos por Suplidor</a></span></li>
+      <li><span class="toc-num">4.</span><span class="toc-title"><a href="#sec-cxc">Análisis de Cuentas x Cobrar</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-grupo">CxC por Grupo de Cliente</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-cliente">Desglose por Cliente</a></span></li>
+      <li><span class="toc-num">5.</span><span class="toc-title"><a href="#sec-cxp">Análisis de Cuentas x Pagar</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-aging">CxP por Antigüedad de Emisión</a></span></li>
+      <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-suplidor">Desglose por Suplidor</a></span></li>
+      <li><span class="toc-num">6.</span><span class="toc-title"><a href="#sec-flujo">Flujo de Efectivo</a></span></li>
+      ${docsMarkdown ? `<li><span class="toc-num">7.</span><span class="toc-title"><a href="#sec-docs">Documentación del Informe</a></span></li>` : ''}
+    </ul>
+  </div>
+
+  <!-- ══ Página 2: Resumen Ejecutivo ══ -->
+  <div id="sec-resumen" style="page-break-before: always; padding-top: 4px;">
 
   <!-- ── Header ── -->
   <div class="report-header">
@@ -929,40 +1342,59 @@ class HoaReportGenerator {
     <div class="meta">Elaborado el: ${format(generatedAt, 'dd/MM/yyyy HH:mm')}</div>
   </div>
 
+  <!-- ── Row 0: Resultado del Período + Balance en Banco ── -->
+  <div class="kpi-row0">
+    <div class="cf-result-card ${periodResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__label">Resultado del Período</div>
+      <div class="cf-result-card__amount">${periodResult >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(periodResult)))}</div>
+    </div>
+    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+      <div class="cf-result-card__left">
+        <div class="cf-result-card__label">Balance en Banco</div>
+        <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
+      </div>
+      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(bankBalance)))}</div>
+    </div>
+  </div>
+
   <!-- ── Row 1: Operational KPIs ── -->
   <div class="kpi-row1">
     ${kpiMetric(HoaReportGenerator.ICON_INVOICE,    ['Cargos Emitidos', 'en el Período'],    `$${fmt(totalInvoicedInPeriod)}`,  'kpi-blue')}
-    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green')}
+    ${kpiMetric(HoaReportGenerator.ICON_PAYMENT,    ['Pagos Recibidos', 'en el Período'],    `$${fmt(totalPaymentsInPeriod)}`,  'kpi-green',
+      cobranzaPct !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} % Cobranza: ${this.esc(cobranzaPct)}%</div>` : undefined)}
     ${kpiMetric(HoaReportGenerator.ICON_EXPENSE,    ['Gastos', 'del Período'],               `$${fmt(totalExpensesInPeriod)}`,  'kpi-amber',
       `<div class="kpi-sub">${HoaReportGenerator.ICON_CASH} $${fmt(totalExpensesPaidInPeriod)} pagado en el período.</div>`)}
   </div>
 
   <!-- ── Row 2: Balance KPIs with trend ── -->
   <div class="kpi-row2">
-    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd,   arAtPeriodStart, 'kpi-sky',    true)}
+    ${kpiBalance(HoaReportGenerator.ICON_RECEIVABLE, ['Total Cuentas', 'por Cobrar'], arAtPeriodEnd, arAtPeriodStart, 'kpi-sky', true,
+      arMorosidadStr !== null ? `<div class="kpi-sub">${HoaReportGenerator.ICON_RECEIVABLE} Morosidad +90d: ${this.esc(arMorosidadStr)}</div>` : undefined)}
     ${/* apAtPeriodEnd/Start are 0 (AP not yet integrated); check makes the widget
          show real data automatically once the Bills module is added and populates them */''}
     ${kpiBalance(HoaReportGenerator.ICON_PAYABLE,    ['Total Cuentas', 'por Pagar'],  apAtPeriodEnd,   apAtPeriodStart, 'kpi-violet', apAtPeriodEnd > 0 || apAtPeriodStart > 0)}
   </div>
 
   <!-- ── Bar Chart: Payments by Client Group (stacked by aging) ── -->
-  <div class="chart-section">
+  <div class="chart-section" id="sub-resumen-pagos">
     <div class="section-title">Pagos Recibidos en el Período por Grupo de Clientes</div>
     ${paymentsByGroup.length > 0
-      ? '<canvas id="chart-payments" width="680" height="220"></canvas>'
+      ? '<canvas id="chart-payments" width="680" height="240"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
   <!-- ── Bar Chart: AR by Unidad Vivienda (stacked by aging) ── -->
-  <div class="chart-section">
+  <div class="chart-section" id="sub-resumen-cxc">
     <div class="section-title">Cuentas por Cobrar al Final del Período por Unidad Vivienda</div>
     ${arByUnit.length > 0
-      ? '<canvas id="chart-ar" width="680" height="220"></canvas>'
+      ? '<canvas id="chart-ar" width="680" height="240"></canvas>'
       : '<p class="no-data">Sin datos para este período.</p>'}
   </div>
 
-  <!-- ── Página 2: Comportamiento Histórico de Pagos (landscape) ── -->
-  <div class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
+  </div><!-- /#sec-resumen -->
+
+  <!-- ══ Página 3: Comportamiento Histórico de Pagos (landscape) ══ -->
+  <div id="sec-heatmap" class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Comportamiento Histórico de Pagos</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
@@ -970,8 +1402,8 @@ class HoaReportGenerator {
     ${heatmapHtml}
   </div>
 
-  <!-- ── Página 3: Análisis de Gastos ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 4: Análisis de Gastos ══ -->
+  <div id="sec-gastos" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Gastos</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
@@ -980,7 +1412,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: doughnut chart of expense categories -->
       <div>
-        <div class="section-title">Categoría de Gastos en el Período</div>
+        <div class="section-title" id="sub-gastos-cat">Categoría de Gastos en el Período</div>
         ${expensesByCategory.length > 0
           ? '<canvas id="chart-expense-cat" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin gastos en el período.</p>'}
@@ -988,14 +1420,14 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: vendor expense table -->
       <div>
-        <div class="section-title">Gastos por Suplidor</div>
+        <div class="section-title" id="sub-gastos-suplidor">Gastos por Suplidor</div>
         ${vendorTableHtml}
       </div>
     </div>
   </div>
 
-  <!-- ── Página 4: Análisis de Cuentas x Cobrar ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 5: Análisis de Cuentas x Cobrar ══ -->
+  <div id="sec-cxc" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Cobrar</h1>
       <div class="meta">Al ${this.esc(periodEnd)}</div>
@@ -1004,7 +1436,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: donut chart by group + group summary table + aging table -->
       <div>
-        <div class="section-title">CxC por Grupo de Cliente</div>
+        <div class="section-title" id="sub-cxc-grupo">CxC por Grupo de Cliente</div>
         ${arByGroup.length > 0
           ? '<canvas id="chart-ar-donut" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin cuentas por cobrar al cierre del período.</p>'}
@@ -1014,14 +1446,14 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: per-client breakdown table -->
       <div>
-        <div class="section-title">Desglose por Cliente</div>
+        <div class="section-title" id="sub-cxc-cliente">Desglose por Cliente</div>
         ${arClientTableHtml}
       </div>
     </div>
   </div>
 
-  <!-- ── Página 5: Análisis de Cuentas x Pagar ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 6: Análisis de Cuentas x Pagar ══ -->
+  <div id="sec-cxp" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Pagar</h1>
       <div class="meta">Al ${this.esc(periodEnd)}</div>
@@ -1030,7 +1462,7 @@ class HoaReportGenerator {
     <div class="expense-analysis-cols">
       <!-- Left column: donut chart by aging + aging breakdown table -->
       <div>
-        <div class="section-title">CxP por Antigüedad de Emisión</div>
+        <div class="section-title" id="sub-cxp-aging">CxP por Antigüedad de Emisión</div>
         ${apHasData
           ? '<canvas id="chart-ap-donut" width="320" height="320"></canvas>'
           : '<p class="no-data">Sin cuentas por pagar al cierre del período.</p>'}
@@ -1039,19 +1471,44 @@ class HoaReportGenerator {
       </div>
       <!-- Right column: per-vendor breakdown table -->
       <div>
-        <div class="section-title">Desglose por Suplidor</div>
+        <div class="section-title" id="sub-cxp-suplidor">Desglose por Suplidor</div>
         ${apVendorTableHtml}
       </div>
     </div>
   </div>
 
-  <!-- ── Página 6: Flujo de Efectivo ── -->
-  <div style="page-break-before: always; padding-top: 4px;">
+  <!-- ══ Página 7: Flujo de Efectivo ══ -->
+  <div id="sec-flujo" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>
       <div class="meta">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
     </div>
     ${cashFlowHtml}
+  </div>
+
+  ${docsMarkdown ? `
+  <!-- ══ Página 8: Documentación del Informe ══ -->
+  <div id="sec-docs" class="page-docs">
+    <div class="report-header">
+      <h1>Documentación del Informe</h1>
+    </div>
+    <div class="docs-content">
+      ${HoaReportGenerator.parseMarkdown(docsMarkdown)}
+    </div>
+  </div>` : ''}
+
+  <!-- ══ Página de Cierre ══ -->
+  <div id="sec-cierre" class="page-closing">
+    ${safeLogoDataUri ? `<div class="closing-logo"><img src="${safeLogoDataUri}" alt="${this.esc(companyInfo?.name ?? 'Logo')}"></div>` : ''}
+    ${companyInfo?.name ? `<div class="closing-company-name">${this.esc(companyInfo.name)}</div>` : ''}
+    ${companyInfo?.rnc     ? `<div class="closing-detail">RNC: ${this.esc(companyInfo.rnc)}</div>` : ''}
+    ${companyInfo?.website ? `<div class="closing-detail">${this.esc(companyInfo.website)}</div>` : ''}
+    ${companyInfo?.email   ? `<div class="closing-detail">${this.esc(companyInfo.email)}</div>` : ''}
+    ${companyInfo?.address ? `<div class="closing-detail">${this.esc(companyInfo.address)}</div>` : ''}
+    <div class="closing-divider"></div>
+    <div class="closing-thanks">${this.esc(title)}</div>
+    <div class="closing-detail">Período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    <div class="closing-generated">Generado el ${format(generatedAt, 'dd/MM/yyyy')}</div>
   </div>
 
   <!-- ── Chart.js (inlined) ── -->
