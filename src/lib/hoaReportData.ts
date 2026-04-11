@@ -56,6 +56,8 @@ export interface HoaReportData {
    * Accounts payable at the START of the period.
    * Sum of allExpenses where expense.date ≤ periodStart AND
    * (no payment_date OR payment_date > periodStart).
+   * Since allExpenses is pre-filtered to date ≤ periodEnd, expenses after
+   * periodEnd are never included in any AP calculation.
    */
   apAtPeriodStart: number;
   /**
@@ -386,7 +388,7 @@ const HEATMAP_DAY_TIER3 = 90;  // ≤90 d → yellow-green; >90 d → yellow
  * @param periodInvoices Invoices issued during the report period
  * @param periodPayments Payments received during the report period
  * @param periodExpenses Expenses registered during the report period
- * @param allExpenses    Every expense fetched (no date filter) — used to compute AP
+ * @param allExpenses    Every non-deleted expense with date ≤ periodEnd — used to compute AP
  * @param allClients     All clients (used to resolve client → group)
  * @param clientGroups   All client groups from Invoice Ninja group_settings
  * @param periodStart    Start date of the report period
