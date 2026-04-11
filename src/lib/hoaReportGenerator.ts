@@ -771,7 +771,7 @@ class HoaReportGenerator {
         <div class="cf-bank-balance-label">Balance en Banco</div>
         <div class="cf-bank-balance-sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
       </div>
-      <div class="cf-bank-balance-amount ${bankBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${bankBalance >= 0 ? '+' : '−'}$${fmt(Math.abs(bankBalance))}</div>
+      <div class="cf-bank-balance-amount ${bankBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${bankBalance < 0 ? '−' : ''}$${fmt(Math.abs(bankBalance))}</div>
     </div>`;
 
     return `<!DOCTYPE html>
@@ -1306,14 +1306,14 @@ class HoaReportGenerator {
   <div class="kpi-row0">
     <div class="cf-result-card ${periodResult >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
       <div class="cf-result-card__label">Resultado del Período</div>
-      <div class="cf-result-card__amount">${periodResult >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(periodResult)))}</div>
+      <div class="cf-result-card__amount">${periodResult < 0 ? '−' : ''}$${this.esc(fmt(Math.abs(periodResult)))}</div>
     </div>
     <div class="cf-result-card cf-result-card--neutral">
       <div class="cf-result-card__left">
         <div class="cf-result-card__label">Balance en Banco</div>
         <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
       </div>
-      <div class="cf-result-card__amount">${bankBalance >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(bankBalance)))}</div>
+      <div class="cf-result-card__amount">${bankBalance < 0 ? '−' : ''}$${this.esc(fmt(Math.abs(bankBalance)))}</div>
     </div>
   </div>
 
