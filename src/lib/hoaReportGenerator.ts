@@ -1005,6 +1005,7 @@ class HoaReportGenerator {
     }
     .cf-result-card--pos { background: #16a34a; }
     .cf-result-card--neg { background: #dc2626; }
+    .cf-result-card--neutral { background: #2563eb; }
     .cf-result-card__left {
       display: flex;
       flex-direction: column;
@@ -1307,7 +1308,7 @@ class HoaReportGenerator {
       <div class="cf-result-card__label">Resultado del Período</div>
       <div class="cf-result-card__amount">${periodResult >= 0 ? '+' : '−'}$${this.esc(fmt(Math.abs(periodResult)))}</div>
     </div>
-    <div class="cf-result-card ${bankBalance >= 0 ? 'cf-result-card--pos' : 'cf-result-card--neg'}">
+    <div class="cf-result-card cf-result-card--neutral">
       <div class="cf-result-card__left">
         <div class="cf-result-card__label">Balance en Banco</div>
         <div class="cf-result-card__sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
