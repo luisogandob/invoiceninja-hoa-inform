@@ -1,6 +1,8 @@
 import nodemailer, { Transporter } from 'nodemailer';
 import type { SentMessageInfo } from 'nodemailer';
 import dotenv from 'dotenv';
+import type { CompanyInfo } from './hoaReportData.js';
+import { buildTestEmailHtml } from './emailTemplate.js';
 
 dotenv.config();
 
@@ -140,6 +142,44 @@ class EmailSender {
       };
     } catch (error) {
       console.error('Error sending notification:', (error as Error).message);
+      throw error;
+    }
+  }
+
+  /**
+   * Send a test email to verify the email configuration.
+   * Uses the branded HTML template with optional company info.
+   */
+  async sendTestEmail(to: string, companyInfo?: CompanyInfo): Promise<EmailResult> {
+    this.init();
+
+    const recipient = to || this.defaultTo;
+    if (!recipient) {
+      throw new Error('Recipient email address is required');
+    }
+
+    const html = await buildTestEmailHtml(companyInfo);
+    const subject = 'Email de Prueba — HOA Informe';
+    const text = 'Este es un email de prueba generado por el sistema HOA Informe. Si lo recibiste correctamente, la configuración de correo está funcionando.';
+
+    const mailOptions = {
+      from: this.from,
+      to: recipient,
+      subject,
+      text,
+      html
+    };
+
+    try {
+      const info: SentMessageInfo = await this.transporter!.sendMail(mailOptions);
+      console.log('Test email sent successfully:', info.messageId);
+      return {
+        success: true,
+        messageId: info.messageId,
+        response: info.response
+      };
+    } catch (error) {
+      console.error('Error sending test email:', (error as Error).message);
       throw error;
     }
   }

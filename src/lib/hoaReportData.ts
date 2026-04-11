@@ -14,6 +14,8 @@ export interface CompanyInfo {
   website?: string;
   /** Contact e-mail address */
   email?: string;
+  /** Phone number */
+  phone?: string;
   /** Physical address */
   address?: string;
   /**

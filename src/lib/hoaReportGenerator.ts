@@ -1,9 +1,9 @@
 import puppeteer, { type Browser } from 'puppeteer';
 import { format } from 'date-fns';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import { createRequire } from 'module';
-import axios from 'axios';
 import type { HoaReportData } from './hoaReportData.js';
+import { fetchLogoAsDataUri } from './logoUtils.js';
 
 const _require = createRequire(import.meta.url);
 
@@ -135,7 +135,7 @@ class HoaReportGenerator {
     // Fetch / load the company logo as a base64 data URI before rendering
     let logoDataUri: string | undefined;
     if (data.companyInfo?.logoUrl) {
-      logoDataUri = await this.fetchLogoAsDataUri(data.companyInfo.logoUrl);
+      logoDataUri = await fetchLogoAsDataUri(data.companyInfo.logoUrl);
     }
 
     const html = this.buildHtml(data, logoDataUri);
@@ -183,66 +183,6 @@ class HoaReportGenerator {
   // ---------------------------------------------------------------------------
   // HTML builder
   // ---------------------------------------------------------------------------
-
-  /**
-   * Fetch a logo from a URL or local file path and return it as a base64 data URI
-   * so the PDF renderer can embed it without additional network requests.
-   * Returns undefined if the logo cannot be loaded (logs a warning).
-   */
-  private async fetchLogoAsDataUri(url: string): Promise<string | undefined> {
-    /** Allowed image MIME types for the logo */
-    const ALLOWED_IMAGE_MIMES = new Set([
-      'image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'
-    ]);
-    const ALLOWED_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp']);
-
-    try {
-      // Already a data URI — validate it is an image type
-      if (url.startsWith('data:')) {
-        const mime = url.slice(5, url.indexOf(';'));
-        return ALLOWED_IMAGE_MIMES.has(mime) ? url : undefined;
-      }
-
-      // Local file path — restrict to allowed image extensions
-      if (existsSync(url)) {
-        const ext = url.toLowerCase().split('.').pop() ?? '';
-        if (!ALLOWED_IMAGE_EXTS.has(ext)) {
-          console.warn(`[HoaReportGenerator] Rejected logo path with disallowed extension: "${url}"`);
-          return undefined;
-        }
-        const buf = readFileSync(url);
-        const mimeMap: Record<string, string> = {
-          png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-          gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp'
-        };
-        const mime = mimeMap[ext] ?? 'image/png';
-        return `data:${mime};base64,${buf.toString('base64')}`;
-      }
-
-      // HTTP / HTTPS URL — cap response at 5 MB and validate content type
-      if (url.startsWith('http://') || url.startsWith('https://')) {
-        const response = await axios.get<ArrayBuffer>(url, {
-          responseType: 'arraybuffer',
-          timeout: 8_000,
-          maxContentLength: 5 * 1024 * 1024
-        });
-        const ct = (response.headers['content-type'] as string | undefined) ?? '';
-        const mime = ct.split(';')[0].trim();
-        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
-          console.warn(`[HoaReportGenerator] Rejected logo URL with disallowed content-type "${mime}": "${url}"`);
-          return undefined;
-        }
-        const base64 = Buffer.from(response.data).toString('base64');
-        return `data:${mime};base64,${base64}`;
-      }
-    } catch (err) {
-      console.warn(
-        `[HoaReportGenerator] Could not load logo from "${url}":`,
-        (err as Error).message
-      );
-    }
-    return undefined;
-  }
 
   /**
    * Convert a basic subset of Markdown to HTML.
