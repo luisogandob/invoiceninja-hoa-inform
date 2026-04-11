@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import type { CompanyInfo } from './hoaReportData.js';
 import { fetchLogoAsDataUri } from './logoUtils.js';
 
@@ -93,7 +95,7 @@ function builtInTemplate(): string {
           </tr>
           <tr>
             <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#9ca3af;">{{COMPANY_NAME}}</p>
+              <p style="margin:0;font-size:11px;color:#9ca3af;">{{COMPANY_NAME}} &copy; {{CURRENT_YEAR}}</p>
             </td>
           </tr>
         </table>
@@ -110,11 +112,27 @@ function builtInTemplate(): string {
  * The template is loaded from EMAIL_TEMPLATE_PATH (defaults to
  * ./email-template.html).  The following {{TOKEN}} placeholders are replaced:
  *
+ *   — Report / period data —
  *   {{REPORT_TITLE}}      — HTML-escaped report title
- *   {{PERIOD_STRING}}     — HTML-escaped period string
+ *   {{PERIOD_STRING}}     — HTML-escaped period string (e.g. "01/04/2026 al 30/04/2026")
+ *   {{PERIOD_START}}      — Start date of the period (dd/MM/yyyy)
+ *   {{PERIOD_END}}        — End date of the period (dd/MM/yyyy)
+ *
+ *   — Current date tokens (set at render time) —
+ *   {{CURRENT_YEAR}}      — Four-digit current year (e.g. "2026")
+ *   {{CURRENT_MONTH}}     — Zero-padded current month number (e.g. "04")
+ *   {{CURRENT_MONTH_NAME}}— Current month name in Spanish (e.g. "abril")
+ *   {{CURRENT_DATE}}      — Current date formatted as dd/MM/yyyy
+ *
+ *   — Company / HOA branding —
  *   {{COMPANY_NAME}}      — HTML-escaped company name (or empty string)
  *   {{COMPANY_NAME_HTML}} — <h1> tag with company name, or empty string
  *   {{LOGO_HTML}}         — <img> tag with base64 logo URI, or empty string
+ *   {{COMPANY_ADDRESS}}   — HTML-escaped physical address, or empty string
+ *   {{COMPANY_EMAIL}}     — HTML-escaped contact email, or empty string
+ *   {{COMPANY_PHONE}}     — HTML-escaped phone number, or empty string
+ *   {{COMPANY_WEBSITE}}   — HTML-escaped website URL, or empty string
+ *   {{COMPANY_RNC}}       — HTML-escaped RNC / tax ID, or empty string
  *   {{CONTACT_BLOCK}}     — <table> with address/phone/email/website/RNC rows,
  *                           or empty string when no contact info is available
  */
@@ -159,13 +177,31 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
     ? `<table style="border-collapse:collapse;margin-top:16px;">${contactRows.join('')}</table>`
     : '';
 
+  const now = new Date();
+
   const tokens: Record<string, string> = {
-    REPORT_TITLE:      escHtml(reportTitle),
-    PERIOD_STRING:     escHtml(periodString),
-    COMPANY_NAME:      companyName,
-    COMPANY_NAME_HTML: companyNameHtml,
-    LOGO_HTML:         logoHtml,
-    CONTACT_BLOCK:     contactBlock,
+    // Report / period data
+    REPORT_TITLE:       escHtml(reportTitle),
+    PERIOD_STRING:      escHtml(periodString),
+    PERIOD_START:       periodString.split(' al ')[0] ?? escHtml(periodString),
+    PERIOD_END:         periodString.split(' al ')[1] ?? escHtml(periodString),
+
+    // Current date tokens
+    CURRENT_YEAR:       String(now.getFullYear()),
+    CURRENT_MONTH:      format(now, 'MM'),
+    CURRENT_MONTH_NAME: format(now, 'MMMM', { locale: es }),
+    CURRENT_DATE:       format(now, 'dd/MM/yyyy'),
+
+    // Company / HOA branding
+    COMPANY_NAME:       companyName,
+    COMPANY_NAME_HTML:  companyNameHtml,
+    LOGO_HTML:          logoHtml,
+    COMPANY_ADDRESS:    companyInfo?.address ? escHtml(companyInfo.address) : '',
+    COMPANY_EMAIL:      companyInfo?.email   ? escHtml(companyInfo.email)   : '',
+    COMPANY_PHONE:      companyInfo?.phone   ? escHtml(companyInfo.phone)   : '',
+    COMPANY_WEBSITE:    companyInfo?.website ? escHtml(companyInfo.website) : '',
+    COMPANY_RNC:        companyInfo?.rnc     ? escHtml(companyInfo.rnc)     : '',
+    CONTACT_BLOCK:      contactBlock,
   };
 
   const source = loadTemplateSource();
