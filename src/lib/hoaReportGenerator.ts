@@ -113,10 +113,12 @@ class HoaReportGenerator {
   private browser: Browser | null = null;
   private readonly colorScheme: string;
   private readonly cxcContactMinInvoices: number;
+  private readonly cxcGroupOthers: boolean;
 
   constructor() {
     this.colorScheme = process.env.CHART_COLOR_SCHEME ?? 'brewer.Paired12';
     this.cxcContactMinInvoices = parseInt(process.env.CXC_CONTACT_MIN_INVOICES ?? '3', 10) || 3;
+    this.cxcGroupOthers = (process.env.CXC_GROUP_OTHERS ?? 'true') !== 'false';
   }
 
   private async getBrowser(): Promise<Browser> {
@@ -524,6 +526,22 @@ class HoaReportGenerator {
     // ── AR by-client table HTML (Análisis de CxC — right column) ────────────
     const arClientTotal   = arByClient.reduce((s, c) => s + c.balance, 0);
     const arClientTotalInvoices = arByClient.reduce((s, c) => s + c.invoiceCount, 0);
+
+    // Split into main rows and the optional "Otros…" group (single-invoice clients)
+    const arClientMain   = this.cxcGroupOthers ? arByClient.filter(c => c.invoiceCount > 1) : arByClient;
+    const arClientOthers = this.cxcGroupOthers ? arByClient.filter(c => c.invoiceCount === 1) : [];
+    const othersRow = arClientOthers.length > 0
+      ? (() => {
+          const othersCount   = arClientOthers.reduce((s, c) => s + c.invoiceCount, 0);
+          const othersBalance = arClientOthers.reduce((s, c) => s + c.balance, 0);
+          return `<tr>
+                <td>Otros…</td>
+                <td class="amount-col">${othersCount}</td>
+                <td class="amount-col">$${fmt(othersBalance)}</td>
+              </tr>`;
+        })()
+      : '';
+
     const arClientTableHtml = arByClient.length > 0
       ? `<table class="vendor-table">
           <thead>
@@ -534,7 +552,7 @@ class HoaReportGenerator {
             </tr>
           </thead>
           <tbody>
-            ${arByClient.map(c => {
+            ${arClientMain.map(c => {
               const hasContact = c.invoiceCount >= this.cxcContactMinInvoices && !!c.contactName;
               const contactRow = hasContact
                 ? `\n                <tr class="ar-client-contact-row"><td colspan="3" style="padding-left:18px;font-size:11px;color:#6b7280;border-top:none;padding-top:1px;padding-bottom:3px;">👤 ${this.esc(c.contactName!)}</td></tr>`
@@ -546,6 +564,7 @@ class HoaReportGenerator {
                 <td class="amount-col"${tdStyle}>$${fmt(c.balance)}</td>
               </tr>${contactRow}`;
             }).join('\n            ')}
+            ${othersRow}
           </tbody>
           <tfoot style="display:table-row-group">
             <tr>
