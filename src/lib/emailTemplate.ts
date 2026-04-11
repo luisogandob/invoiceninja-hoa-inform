@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import type { CompanyInfo } from './hoaReportData.js';
 import { fetchLogoAsDataUri } from './logoUtils.js';
 
@@ -25,14 +27,96 @@ function escHtml(s: string): string {
 }
 
 /**
+ * Load the email template HTML from EMAIL_TEMPLATE_PATH (default: ./email-template.html).
+ *
+ * Falls back to a minimal built-in template when the file is missing and no
+ * explicit path was configured.
+ */
+function loadTemplateSource(): string {
+  const envPath = process.env.EMAIL_TEMPLATE_PATH;
+  const templatePath = envPath || './email-template.html';
+  const resolved = path.resolve(templatePath);
+  const cwd = path.resolve('.');
+
+  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    console.warn(`[emailTemplate] EMAIL_TEMPLATE_PATH outside working directory. Ignoring: "${templatePath}"`);
+    return builtInTemplate();
+  }
+
+  if (!fs.existsSync(resolved)) {
+    if (envPath) {
+      console.warn(`[emailTemplate] EMAIL_TEMPLATE_PATH file not found: "${templatePath}". Using built-in template.`);
+    }
+    return builtInTemplate();
+  }
+
+  try {
+    return fs.readFileSync(resolved, 'utf-8');
+  } catch (err) {
+    console.warn(`[emailTemplate] Could not read template file "${templatePath}":`, (err as Error).message);
+    return builtInTemplate();
+  }
+}
+
+/**
+ * Minimal built-in template used when the external file is unavailable.
+ * Supports the same {{TOKEN}} placeholders.
+ */
+function builtInTemplate(): string {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{REPORT_TITLE}}</title>
+</head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background:#1e3a5f;padding:28px 32px;text-align:center;">
+              {{LOGO_HTML}}
+              {{COMPANY_NAME_HTML}}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px;">
+              <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">{{REPORT_TITLE}}</h2>
+              <p style="margin:0 0 20px 0;font-size:15px;color:#374151;">Período: <strong>{{PERIOD_STRING}}</strong></p>
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">Estimado/a residente,</p>
+              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">Le informamos que el informe financiero de la comunidad correspondiente al período <strong>{{PERIOD_STRING}}</strong> ya está disponible.</p>
+              <p style="margin:0 0 24px 0;font-size:14px;color:#374151;line-height:1.7;">Encontrará el informe completo en formato PDF adjunto a este correo. Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.</p>
+              {{CONTACT_BLOCK}}
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;">{{COMPANY_NAME}}</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
+
+/**
  * Build the HTML body of the financial-report email.
  *
- * The email intentionally contains no financial figures — it is a simple
- * notification that invites the recipient to open the attached PDF report,
- * similar to a bank-statement delivery email.
+ * The template is loaded from EMAIL_TEMPLATE_PATH (defaults to
+ * ./email-template.html).  The following {{TOKEN}} placeholders are replaced:
  *
- * If the company logo URL resolves successfully it is embedded as a base64
- * data URI so email clients that block external images can still display it.
+ *   {{REPORT_TITLE}}      — HTML-escaped report title
+ *   {{PERIOD_STRING}}     — HTML-escaped period string
+ *   {{COMPANY_NAME}}      — HTML-escaped company name (or empty string)
+ *   {{COMPANY_NAME_HTML}} — <h1> tag with company name, or empty string
+ *   {{LOGO_HTML}}         — <img> tag with base64 logo URI, or empty string
+ *   {{CONTACT_BLOCK}}     — <table> with address/phone/email/website/RNC rows,
+ *                           or empty string when no contact info is available
  */
 export async function buildReportEmailHtml(data: ReportEmailData): Promise<string> {
   const { companyInfo, reportTitle, periodString } = data;
@@ -45,18 +129,13 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
 
   const companyName = companyInfo?.name ? escHtml(companyInfo.name) : '';
 
-  // Build the header block: logo + company name
-  const headerHtml = `
-    <div style="background:#1e3a5f;padding:28px 32px;text-align:center;">
-      ${logoDataUri
-        ? `<img src="${logoDataUri}" alt="${companyName}" style="max-height:80px;max-width:220px;margin-bottom:${companyName ? '12px' : '0'};display:block;margin-left:auto;margin-right:auto;">`
-        : ''
-      }
-      ${companyName
-        ? `<h1 style="margin:0;color:#ffffff;font-family:Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;">${companyName}</h1>`
-        : ''
-      }
-    </div>`;
+  const logoHtml = logoDataUri
+    ? `<img src="${logoDataUri}" alt="${companyName}" style="max-height:80px;max-width:220px;margin-bottom:${companyName ? '12px' : '0'};display:block;margin-left:auto;margin-right:auto;">`
+    : '';
+
+  const companyNameHtml = companyName
+    ? `<h1 style="margin:0;color:#ffffff;font-family:Arial,sans-serif;font-size:22px;font-weight:700;letter-spacing:0.5px;">${companyName}</h1>`
+    : '';
 
   // Company contact info rows
   const contactRows: string[] = [];
@@ -80,59 +159,15 @@ export async function buildReportEmailHtml(data: ReportEmailData): Promise<strin
     ? `<table style="border-collapse:collapse;margin-top:16px;">${contactRows.join('')}</table>`
     : '';
 
-  return `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>${escHtml(reportTitle)}</title>
-</head>
-<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;">
-    <tr>
-      <td align="center" style="padding:32px 16px;">
-        <table role="presentation" width="100%" style="max-width:600px;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+  const tokens: Record<string, string> = {
+    REPORT_TITLE:      escHtml(reportTitle),
+    PERIOD_STRING:     escHtml(periodString),
+    COMPANY_NAME:      companyName,
+    COMPANY_NAME_HTML: companyNameHtml,
+    LOGO_HTML:         logoHtml,
+    CONTACT_BLOCK:     contactBlock,
+  };
 
-          <!-- Header -->
-          <tr><td>${headerHtml}</td></tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="padding:32px;">
-
-              <h2 style="margin:0 0 10px 0;font-size:20px;color:#111827;">${escHtml(reportTitle)}</h2>
-              <p style="margin:0 0 20px 0;font-size:15px;color:#374151;">Período: <strong>${escHtml(periodString)}</strong></p>
-
-              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
-                Estimado/a residente,
-              </p>
-              <p style="margin:0 0 12px 0;font-size:14px;color:#374151;line-height:1.7;">
-                Le informamos que el informe financiero de la comunidad correspondiente al período
-                <strong>${escHtml(periodString)}</strong> ya está disponible.
-              </p>
-              <p style="margin:0 0 24px 0;font-size:14px;color:#374151;line-height:1.7;">
-                Encontrará el informe completo en formato PDF adjunto a este correo.
-                Le invitamos a revisarlo y no dude en contactarnos ante cualquier consulta.
-              </p>
-
-              ${contactBlock}
-
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background:#f8fafc;padding:16px 32px;border-top:1px solid #e5e7eb;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#9ca3af;">
-                Generado con <a href="https://invoiceninja.com" style="color:#6b7280;text-decoration:none;">Invoice Ninja</a>
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  const source = loadTemplateSource();
+  return source.replace(/\{\{([A-Z_]+)\}\}/g, (_, key) => tokens[key] ?? '');
 }

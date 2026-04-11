@@ -143,3 +143,6 @@ vite.config.ts.timestamp-*
 *.db
 *.db-shm
 *.db-wal
+
+# Local (untracked) customization files — use EMAIL_TEMPLATE_PATH to point to these
+email-template.local.html
