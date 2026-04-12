@@ -769,16 +769,16 @@ class HoaReportGenerator {
         </tr>
       </tbody>
     </table>
-    <div class="chart-section" style="margin-top: 28px;">
-      <div class="section-title">Balance Diario en Banco según Registros</div>
-      <canvas id="chart-cf-daily" width="680" height="250"></canvas>
-    </div>
     <div class="cf-bank-balance-row">
       <div>
         <div class="cf-bank-balance-label">Balance en Banco</div>
         <div class="cf-bank-balance-sub">Pendiente de Conciliar al ${this.esc(fmtDate1(periodEnd))}</div>
       </div>
       <div class="cf-bank-balance-amount ${bankBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${bankBalance < 0 ? '−' : ''}$${fmt(Math.abs(bankBalance))}</div>
+    </div>
+    <div class="chart-section" style="margin-top: 28px;">
+      <div class="section-title">Balance Diario en Banco según Registros</div>
+      <canvas id="chart-cf-daily" width="680" height="250"></canvas>
     </div>`;
 
     return `<!DOCTYPE html>
