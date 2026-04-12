@@ -751,7 +751,7 @@ class HoaReportGenerator {
         <tr class="cf-opening-row">
           <td class="cf-icon-cell"></td>
           <td class="cf-date-cell"></td>
-          <td class="cf-total-label">Balance Inicial</td>
+          <td class="cf-total-label">Balance Inicial en Banco</td>
           <td class="cf-amount-cell ${openingBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${openingBalance < 0 ? '−' : ''}$${fmt(Math.abs(openingBalance))}</td>
         </tr>
         ${cfRowsHtml}
