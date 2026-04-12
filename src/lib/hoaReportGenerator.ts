@@ -289,6 +289,7 @@ class HoaReportGenerator {
       paymentHeatmap,
       perpetualResult,
       bankBalance,
+      openingBalance,
       companyInfo,
       docsMarkdown
     } = data;
@@ -747,6 +748,12 @@ class HoaReportGenerator {
         </tr>
       </thead>
       <tbody>
+        <tr class="cf-opening-row">
+          <td class="cf-icon-cell"></td>
+          <td class="cf-date-cell"></td>
+          <td class="cf-total-label">Balance Inicial</td>
+          <td class="cf-amount-cell ${openingBalance >= 0 ? 'cf-total-in' : 'cf-total-out'}">${openingBalance < 0 ? '−' : ''}$${fmt(Math.abs(openingBalance))}</td>
+        </tr>
         ${cfRowsHtml}
         <tr class="cf-totals-row">
           <td colspan="3" class="cf-total-label">Total de Pagos Recibidos</td>
@@ -990,6 +997,11 @@ class HoaReportGenerator {
       background: #f9fafb;
     }
     .cf-totals-row:first-of-type td { border-top: 2px solid #1e2d3d; }
+    .cf-opening-row td {
+      font-weight: 700;
+      background: #f0f9ff;
+      border-bottom: 2px solid #1e2d3d;
+    }
     .cf-total-label { font-size: 12px; }
     .cf-total-in  { color: #16a34a; }
     .cf-total-out { color: #dc2626; }

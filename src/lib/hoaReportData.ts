@@ -146,6 +146,15 @@ export interface HoaReportData {
   bankBalance: number;
 
   /**
+   * Opening balance at the start of the period (the day before periodStart).
+   * Computed as: (sum of all payments received before the period)
+   *              minus (sum of all expenses paid before the period)
+   *              plus initialBalance (from INITIAL_BANK_BALANCE env var).
+   * Displayed as the first row ("Balance Inicial") in the Flujo de Efectivo table.
+   */
+  openingBalance: number;
+
+  /**
    * Company branding and contact info displayed on the cover page.
    * Populated from COMPANY_* env vars in index.ts.
    */
@@ -1039,6 +1048,7 @@ export function buildHoaReportData(
     paymentHeatmap,
     perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
     bankBalance: (allTimePaymentsTotal - allTimeExpensesPaidTotal) + initialBalance,
+    openingBalance: balanceAtPeriodStart,
   };
 }
 
