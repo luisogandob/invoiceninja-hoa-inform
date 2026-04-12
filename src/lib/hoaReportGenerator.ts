@@ -346,13 +346,33 @@ class HoaReportGenerator {
     const cfDailyBalance = JSON.stringify(cfDailyData.balance);
 
     // ── Historical monthly indicators chart data ─────────────────────────────
-    const histLabels          = JSON.stringify(historicalMonthly.map(p => p.label));
-    const histInvoiced        = JSON.stringify(historicalMonthly.map(p => p.invoiced));
-    const histPaymentsReceived= JSON.stringify(historicalMonthly.map(p => p.paymentsReceived));
-    const histExpensesPaid    = JSON.stringify(historicalMonthly.map(p => p.expensesPaid));
-    const histAr              = JSON.stringify(historicalMonthly.map(p => p.ar));
-    const histAp              = JSON.stringify(historicalMonthly.map(p => p.ap));
-    const histBankBalance     = JSON.stringify(historicalMonthly.map(p => p.bankBalance));
+    // Append the current period as the last (13th) data point
+    const HIST_MONTHS_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+    const periodLabelYear  = Number(periodStart.slice(0, 4));
+    const periodLabelMonth = Number(periodStart.slice(5, 7)); // 1-indexed
+    const curPeriodLabel   = `${HIST_MONTHS_ES[periodLabelMonth - 1]} ${String(periodLabelYear).slice(-2)} ▶`;
+    const histAll = [
+      ...historicalMonthly,
+      {
+        label:            curPeriodLabel,
+        invoiced:         totalInvoicedInPeriod,
+        paymentsReceived: totalPaymentsInPeriod,
+        expensesPaid:     totalExpensesPaidInPeriod,
+        ar:               arAtPeriodEnd,
+        ap:               apAtPeriodEnd,
+        bankBalance:      bankBalance,
+      },
+    ];
+    const histLastIdx         = histAll.length - 1;
+    const histLabels          = JSON.stringify(histAll.map(p => p.label));
+    const histInvoiced        = JSON.stringify(histAll.map(p => p.invoiced));
+    const histPaymentsReceived= JSON.stringify(histAll.map(p => p.paymentsReceived));
+    const histExpensesPaid    = JSON.stringify(histAll.map(p => p.expensesPaid));
+    const histAr              = JSON.stringify(histAll.map(p => p.ar));
+    const histAp              = JSON.stringify(histAll.map(p => p.ap));
+    const histBankBalance     = JSON.stringify(histAll.map(p => p.bankBalance));
+    // pointRadius array: current period point is larger to differentiate it visually
+    const histPointRadius     = JSON.stringify(histAll.map((_, i) => i === histLastIdx ? 7 : 3));
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -1385,7 +1405,7 @@ class HoaReportGenerator {
   <div id="sec-indicators" class="page-indicators" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Indicadores Históricos</h1>
-      <div class="meta">12 meses anteriores al período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+      <div class="meta">12 meses anteriores + período actual: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
     </div>
     <div class="indicators-chart-wrap">
       ${historicalMonthly.length > 0
@@ -1717,7 +1737,7 @@ class HoaReportGenerator {
               borderColor: '#3b82f6',
               backgroundColor: 'transparent',
               borderWidth: 2,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3
             },
             {
@@ -1726,7 +1746,7 @@ class HoaReportGenerator {
               borderColor: '#22c55e',
               backgroundColor: 'transparent',
               borderWidth: 2,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3
             },
             {
@@ -1735,7 +1755,7 @@ class HoaReportGenerator {
               borderColor: '#f59e0b',
               backgroundColor: 'transparent',
               borderWidth: 2,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3
             },
             {
@@ -1744,7 +1764,7 @@ class HoaReportGenerator {
               borderColor: '#a855f7',
               backgroundColor: 'transparent',
               borderWidth: 2,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3,
               borderDash: [5, 3]
             },
@@ -1754,7 +1774,7 @@ class HoaReportGenerator {
               borderColor: '#ef4444',
               backgroundColor: 'transparent',
               borderWidth: 2,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3,
               borderDash: [5, 3]
             },
@@ -1764,7 +1784,7 @@ class HoaReportGenerator {
               borderColor: '#0891b2',
               backgroundColor: 'rgba(8,145,178,0.07)',
               borderWidth: 2.5,
-              pointRadius: 3,
+              pointRadius: ${histPointRadius},
               tension: 0.3,
               fill: true
             }
