@@ -1389,7 +1389,7 @@ class HoaReportGenerator {
     </div>
     <div class="indicators-chart-wrap">
       ${historicalMonthly.length > 0
-        ? '<canvas id="chart-indicators" width="1060" height="420"></canvas>'
+        ? '<canvas id="chart-indicators" width="1060" height="525"></canvas>'
         : '<p class="no-data">Sin datos históricos disponibles.</p>'}
     </div>
   </div>
