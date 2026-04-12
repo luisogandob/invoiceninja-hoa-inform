@@ -53,7 +53,7 @@ async function example3(): Promise<void> {
         start: '2024-01-01',
         end: '2024-01-31'
       },
-      deliveryMode: 'attach',
+      deliveryMode: 'upload',
       saveToFile: true
     });
     console.log('Success:', result.message);

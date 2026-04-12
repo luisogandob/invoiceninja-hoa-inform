@@ -234,12 +234,12 @@ export interface ReportOptions {
   customRange?: CustomRange | null;
   /**
    * Controls what happens after the PDF is generated and uploaded:
-   *  - 'attach'       — upload to Invoice Ninja only; no email is sent.
+   *  - 'upload'       — upload to Invoice Ninja only; no email is sent.
    *  - 'email-all'    — send the report to every registered contact.
    *  - 'email-single' — send the report only to `singleRecipient`.
-   * Defaults to 'attach' when omitted.
+   * Defaults to 'upload' when omitted.
    */
-  deliveryMode?: 'attach' | 'email-all' | 'email-single';
+  deliveryMode?: 'upload' | 'email-all' | 'email-single';
   /** Required when deliveryMode is 'email-single'. */
   singleRecipient?: string | null;
   saveToFile?: boolean;
@@ -356,7 +356,7 @@ class HOAInformAutomation {
    *  5. (email-all / email-single only) Send an operator summary email (with
    *     delivery table + PDF) to the `EMAIL_SUMMARIZE_TO` env variable.
    *
-   * When deliveryMode is 'attach', only steps 1–3 are executed (no email).
+   * When deliveryMode is 'upload', only steps 1–3 are executed (no email).
    *
    * Reads all data from the local SQLite cache — does NOT call the Invoice
    * Ninja API.  Run `syncData()` first to populate the cache.
@@ -365,7 +365,7 @@ class HOAInformAutomation {
     const {
       period = (process.env.REPORT_PERIOD as PeriodType) || 'current-month',
       customRange = null,
-      deliveryMode = 'attach',
+      deliveryMode = 'upload',
       singleRecipient = null,
       saveToFile = false,
       outputPath = './hoa-report.pdf'
@@ -423,7 +423,7 @@ class HOAInformAutomation {
         reportData.docsMarkdown = readDocsMarkdown();
 
         // Collect contacts with email only when the delivery mode requires it
-        contacts  = deliveryMode !== 'attach' ? getContactsWithEmail(db) : [];
+        contacts  = deliveryMode !== 'upload' ? getContactsWithEmail(db) : [];
         companyId = getCompanyProfileFromDb(db)?.id;
       } finally {
         db.close();
@@ -436,7 +436,7 @@ class HOAInformAutomation {
       console.log(`   CxC inicio:      $${reportData.arAtPeriodStart.toFixed(2)}`);
       console.log(`   CxC final:       $${reportData.arAtPeriodEnd.toFixed(2)}\n`);
 
-      const totalSteps = deliveryMode === 'attach' ? 2 : 4;
+      const totalSteps = deliveryMode === 'upload' ? 2 : 4;
 
       // ── Step 1: Generate PDF ──────────────────────────────────────────────
       console.log(`📄 [1/${totalSteps}] Generando PDF...`);
@@ -466,11 +466,11 @@ class HOAInformAutomation {
         console.warn('   ⚠️  ID de empresa no disponible — omitiendo subida a Invoice Ninja');
       }
 
-      // ── Steps 3 & 4: Email delivery (skipped in 'attach' mode) ──────────
+      // ── Steps 3 & 4: Email delivery (skipped in 'upload' mode) ──────────
       const periodString = formatPeriodString(period, dateRange);
 
-      if (deliveryMode === 'attach') {
-        console.log('\n   ℹ️  Modo "attach": envío de correos omitido.');
+      if (deliveryMode === 'upload') {
+        console.log('\n   ℹ️  Modo "upload": envío de correos omitido.');
       } else {
         const emailSubject = `${reportTitle} — ${periodString}`;
         const emailText = [
@@ -614,7 +614,7 @@ class HOAInformAutomation {
 
       return {
         success: true,
-        message: deliveryMode === 'attach'
+        message: deliveryMode === 'upload'
           ? 'Report generated and uploaded successfully'
           : 'Report generated and sent successfully',
         stats: {
@@ -865,16 +865,16 @@ async function main(): Promise<void> {
         console.log(`  CxC final:       $${result.stats.totalUnpaidBalance.toFixed(2)}`);
       }
     } else if (command === 'report') {
-      // npm start report <period> attach
+      // npm start report <period> upload
       // npm start report <period> email all
       // npm start report <period> email <address>
-      // npm start report custom <start> <end> attach
+      // npm start report custom <start> <end> upload
       // npm start report custom <start> <end> email all
       // npm start report custom <start> <end> email <address>
       const period = args[1] as PeriodType | undefined;
       if (!period) {
         console.error('✗ Error: Debe especificar el período.\n');
-        console.error('  Uso: npm start report <período> attach');
+        console.error('  Uso: npm start report <período> upload');
         console.error('       npm start report <período> email all');
         console.error('       npm start report <período> email <destinatario>');
         console.error('  Períodos: last-month, current-month, current-year, last-year, custom <inicio> <fin>');
@@ -889,10 +889,10 @@ async function main(): Promise<void> {
         const endDate   = args[3];
         if (!startDate || !endDate) {
           console.error('✗ Error: El período "custom" requiere fecha de inicio y fin.\n');
-          console.error('  Uso: npm start report custom <inicio> <fin> attach');
+          console.error('  Uso: npm start report custom <inicio> <fin> upload');
           console.error('       npm start report custom <inicio> <fin> email all');
           console.error('       npm start report custom <inicio> <fin> email <destinatario>');
-          console.error('  Ejemplo: npm start report custom 2026-01-01 2026-01-31 attach');
+          console.error('  Ejemplo: npm start report custom 2026-01-01 2026-01-31 upload');
           process.exit(1);
         }
         customRange = { start: startDate, end: endDate };
@@ -901,18 +901,18 @@ async function main(): Promise<void> {
 
       const subcommand = args[subcommandIndex];
       if (!subcommand) {
-        console.error('✗ Error: Debe especificar un subcomando (attach / email all / email <destinatario>).\n');
-        console.error('  Uso: npm start report <período> attach');
+        console.error('✗ Error: Debe especificar un subcomando (upload / email all / email <destinatario>).\n');
+        console.error('  Uso: npm start report <período> upload');
         console.error('       npm start report <período> email all');
         console.error('       npm start report <período> email <destinatario>');
         process.exit(1);
       }
 
-      let deliveryMode: 'attach' | 'email-all' | 'email-single';
+      let deliveryMode: 'upload' | 'email-all' | 'email-single';
       let singleRecipient: string | undefined;
 
-      if (subcommand === 'attach') {
-        deliveryMode = 'attach';
+      if (subcommand === 'upload') {
+        deliveryMode = 'upload';
       } else if (subcommand === 'email') {
         const emailTarget = args[subcommandIndex + 1];
         if (!emailTarget) {
@@ -929,7 +929,7 @@ async function main(): Promise<void> {
         }
       } else {
         console.error(`✗ Error: Subcomando desconocido: "${subcommand}"\n`);
-        console.error('  Subcomandos válidos: attach, email all, email <destinatario>');
+        console.error('  Subcomandos válidos: upload, email all, email <destinatario>');
         process.exit(1);
       }
 
@@ -982,14 +982,14 @@ function printUsage(): void {
   console.log('  npm start test                                         - Probar conexiones');
   console.log('  npm start test-email <email>                           - Enviar email de prueba');
   console.log('  npm start test-inform [período]                        - Previsualizar reporte (sin email, usa caché)');
-  console.log('  npm start report <período> attach                      - Generar PDF y subir a Invoice Ninja (sin email)');
+  console.log('  npm start report <período> upload                      - Generar PDF y subir a Invoice Ninja (sin email)');
   console.log('  npm start report <período> email all                   - Generar PDF, subir a IN, enviar a todos los contactos y resumen a EMAIL_SUMMARIZE_TO');
   console.log('  npm start report <período> email <destinatario>        - Generar PDF, subir a IN, enviar SOLO a <destinatario> y resumen a EMAIL_SUMMARIZE_TO');
-  console.log('  npm start report custom <inicio> <fin> attach          - Rango personalizado, ej: custom 2026-01-01 2026-01-31 attach');
+  console.log('  npm start report custom <inicio> <fin> upload          - Rango personalizado, ej: custom 2026-01-01 2026-01-31 upload');
   console.log('');
   console.log('  Períodos: last-month, current-month, current-year, last-year, custom <inicio> <fin>');
   console.log('');
-  console.log('  El subcomando "attach":');
+  console.log('  El subcomando "upload":');
   console.log('    1. Genera el PDF del informe');
   console.log('    2. Sube el PDF a Invoice Ninja como documento público de empresa');
   console.log('');
@@ -1002,7 +1002,7 @@ function printUsage(): void {
   console.log('  Flujo recomendado:');
   console.log('    1. npm start sync                        ← poblar/actualizar el caché');
   console.log('    2. npm start test-inform last-month      ← verificar resultado');
-  console.log('    3. npm start report last-month attach    ← generar y subir a Invoice Ninja');
+  console.log('    3. npm start report last-month upload    ← generar y subir a Invoice Ninja');
   console.log('    4. npm start report last-month email all ← enviar informe a todos los contactos');
 }
 
