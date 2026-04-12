@@ -291,7 +291,8 @@ class HoaReportGenerator {
       bankBalance,
       openingBalance,
       companyInfo,
-      docsMarkdown
+      docsMarkdown,
+      historicalMonthly,
     } = data;
 
     // Validate that the logo data URI is safe to embed (must be an image type)
@@ -343,6 +344,15 @@ class HoaReportGenerator {
     // Daily bank-balance line chart data
     const cfDailyDates   = JSON.stringify(cfDailyData.dates);
     const cfDailyBalance = JSON.stringify(cfDailyData.balance);
+
+    // ── Historical monthly indicators chart data ─────────────────────────────
+    const histLabels          = JSON.stringify(historicalMonthly.map(p => p.label));
+    const histInvoiced        = JSON.stringify(historicalMonthly.map(p => p.invoiced));
+    const histPaymentsReceived= JSON.stringify(historicalMonthly.map(p => p.paymentsReceived));
+    const histExpensesPaid    = JSON.stringify(historicalMonthly.map(p => p.expensesPaid));
+    const histAr              = JSON.stringify(historicalMonthly.map(p => p.ar));
+    const histAp              = JSON.stringify(historicalMonthly.map(p => p.ap));
+    const histBankBalance     = JSON.stringify(historicalMonthly.map(p => p.bankBalance));
 
     // ── KPI helpers ──────────────────────────────────────────────────────────
 
@@ -1043,6 +1053,11 @@ class HoaReportGenerator {
       letter-spacing: -0.02em;
     }
 
+    /* ── Indicadores Históricos — landscape ── */
+    @page indicators-ls { size: A4 landscape; margin: 0.5cm 0.5cm 1cm; }
+    .page-indicators { page: indicators-ls; }
+    .indicators-chart-wrap { display: flex; justify-content: center; align-items: flex-start; padding-top: 4px; }
+
     /* ── Comportamiento Histórico de Pagos — landscape heatmap ── */
     @page heatmap-ls { size: A4 landscape; margin: 0.5cm 0.5cm 1cm; }
     .page-heatmap { page: heatmap-ls; }
@@ -1289,18 +1304,19 @@ class HoaReportGenerator {
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sec-resumen">Indicadores del Período</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-pagos">Pagos Recibidos por Grupo de Clientes</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-resumen-cxc">CxC al Final del Período por Unidad Vivienda</a></span></li>
-      <li><span class="toc-num">2.</span><span class="toc-title"><a href="#sec-heatmap">Comportamiento Histórico de Pagos</a></span></li>
-      <li><span class="toc-num">3.</span><span class="toc-title"><a href="#sec-gastos">Análisis de Gastos</a></span></li>
+      <li><span class="toc-num">2.</span><span class="toc-title"><a href="#sec-indicators">Indicadores Históricos</a></span></li>
+      <li><span class="toc-num">3.</span><span class="toc-title"><a href="#sec-heatmap">Comportamiento Histórico de Pagos</a></span></li>
+      <li><span class="toc-num">4.</span><span class="toc-title"><a href="#sec-gastos">Análisis de Gastos</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-cat">Categoría de Gastos en el Período</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-gastos-suplidor">Gastos por Suplidor</a></span></li>
-      <li><span class="toc-num">4.</span><span class="toc-title"><a href="#sec-cxc">Análisis de Cuentas x Cobrar</a></span></li>
+      <li><span class="toc-num">5.</span><span class="toc-title"><a href="#sec-cxc">Análisis de Cuentas x Cobrar</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-grupo">CxC por Grupo de Cliente</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxc-cliente">Desglose por Cliente</a></span></li>
-      <li><span class="toc-num">5.</span><span class="toc-title"><a href="#sec-cxp">Análisis de Cuentas x Pagar</a></span></li>
+      <li><span class="toc-num">6.</span><span class="toc-title"><a href="#sec-cxp">Análisis de Cuentas x Pagar</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-aging">CxP por Antigüedad de Emisión</a></span></li>
       <li class="toc-sub"><span class="toc-num">—</span><span class="toc-title"><a href="#sub-cxp-suplidor">Desglose por Suplidor</a></span></li>
-      <li><span class="toc-num">6.</span><span class="toc-title"><a href="#sec-flujo">Flujo de Efectivo</a></span></li>
-      ${docsMarkdown ? `<li><span class="toc-num">7.</span><span class="toc-title"><a href="#sec-docs">Documentación del Informe</a></span></li>` : ''}
+      <li><span class="toc-num">7.</span><span class="toc-title"><a href="#sec-flujo">Flujo de Efectivo</a></span></li>
+      ${docsMarkdown ? `<li><span class="toc-num">8.</span><span class="toc-title"><a href="#sec-docs">Documentación del Informe</a></span></li>` : ''}
     </ul>
   </div>
 
@@ -1365,7 +1381,20 @@ class HoaReportGenerator {
 
   </div><!-- /#sec-resumen -->
 
-  <!-- ══ Página 3: Comportamiento Histórico de Pagos (landscape) ══ -->
+  <!-- ══ Página 3: Indicadores Históricos (landscape) ══ -->
+  <div id="sec-indicators" class="page-indicators" style="page-break-before: always; padding-top: 4px;">
+    <div class="report-header">
+      <h1>Indicadores Históricos</h1>
+      <div class="meta">12 meses anteriores al período: ${this.esc(periodStart)} — ${this.esc(periodEnd)}</div>
+    </div>
+    <div class="indicators-chart-wrap">
+      ${historicalMonthly.length > 0
+        ? '<canvas id="chart-indicators" width="1060" height="420"></canvas>'
+        : '<p class="no-data">Sin datos históricos disponibles.</p>'}
+    </div>
+  </div>
+
+  <!-- ══ Página 4: Comportamiento Histórico de Pagos (landscape) ══ -->
   <div id="sec-heatmap" class="page-heatmap" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Comportamiento Histórico de Pagos</h1>
@@ -1374,7 +1403,7 @@ class HoaReportGenerator {
     ${heatmapHtml}
   </div>
 
-  <!-- ══ Página 4: Análisis de Gastos ══ -->
+  <!-- ══ Página 5: Análisis de Gastos ══ -->
   <div id="sec-gastos" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Gastos</h1>
@@ -1398,7 +1427,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ══ Página 5: Análisis de Cuentas x Cobrar ══ -->
+  <!-- ══ Página 6: Análisis de Cuentas x Cobrar ══ -->
   <div id="sec-cxc" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Cobrar</h1>
@@ -1424,7 +1453,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ══ Página 6: Análisis de Cuentas x Pagar ══ -->
+  <!-- ══ Página 7: Análisis de Cuentas x Pagar ══ -->
   <div id="sec-cxp" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Análisis de Cuentas x Pagar</h1>
@@ -1449,7 +1478,7 @@ class HoaReportGenerator {
     </div>
   </div>
 
-  <!-- ══ Página 7: Flujo de Efectivo ══ -->
+  <!-- ══ Página 8: Flujo de Efectivo ══ -->
   <div id="sec-flujo" style="page-break-before: always; padding-top: 4px;">
     <div class="report-header">
       <h1>Flujo de Efectivo</h1>
@@ -1459,7 +1488,7 @@ class HoaReportGenerator {
   </div>
 
   ${docsMarkdown ? `
-  <!-- ══ Página 8: Documentación del Informe ══ -->
+  <!-- ══ Página 9: Documentación del Informe ══ -->
   <div id="sec-docs" class="page-docs">
     <div class="report-header">
       <h1>Documentación del Informe</h1>
@@ -1672,6 +1701,111 @@ class HoaReportGenerator {
     }
 
     buildCfLineChart('chart-cf-daily', ${cfDailyDates}, ${cfDailyBalance});
+
+    /* ── Indicadores Históricos multi-line chart ── */
+    (function () {
+      var el = document.getElementById('chart-indicators');
+      if (!el) return;
+      new Chart(el, {
+        type: 'line',
+        data: {
+          labels: ${histLabels},
+          datasets: [
+            {
+              label: 'Facturas Generadas',
+              data: ${histInvoiced},
+              borderColor: '#3b82f6',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3
+            },
+            {
+              label: 'Pagos Recibidos',
+              data: ${histPaymentsReceived},
+              borderColor: '#22c55e',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3
+            },
+            {
+              label: 'Pagos Emitidos',
+              data: ${histExpensesPaid},
+              borderColor: '#f59e0b',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3
+            },
+            {
+              label: 'Cuentas x Cobrar',
+              data: ${histAr},
+              borderColor: '#a855f7',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              borderDash: [5, 3]
+            },
+            {
+              label: 'Cuentas x Pagar',
+              data: ${histAp},
+              borderColor: '#ef4444',
+              backgroundColor: 'transparent',
+              borderWidth: 2,
+              pointRadius: 3,
+              tension: 0.3,
+              borderDash: [5, 3]
+            },
+            {
+              label: 'Balance de Banco',
+              data: ${histBankBalance},
+              borderColor: '#0891b2',
+              backgroundColor: 'rgba(8,145,178,0.07)',
+              borderWidth: 2.5,
+              pointRadius: 3,
+              tension: 0.3,
+              fill: true
+            }
+          ]
+        },
+        options: {
+          responsive: false,
+          animation: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top',
+              labels: { font: { size: 11 }, padding: 14, boxWidth: 16 }
+            },
+            tooltip: {
+              callbacks: {
+                label: function (item) {
+                  return item.dataset.label + ': $' + item.parsed.y.toLocaleString('en-US', {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2
+                  });
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: { font: { size: 10 }, maxRotation: 45, minRotation: 0 }
+            },
+            y: {
+              beginAtZero: false,
+              ticks: {
+                callback: function (v) {
+                  return '$' + Number(v).toLocaleString('en-US', { maximumFractionDigits: 0 });
+                },
+                font: { size: 10 }
+              }
+            }
+          }
+        }
+      });
+    }());
 
     window.chartsReady = true;
   }());

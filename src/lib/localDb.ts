@@ -242,6 +242,34 @@ export interface DbQueryResult {
    * Used to display the primary contact name in the AR client breakdown table.
    */
   primaryContactByClientId: Record<string, string>;
+  /**
+   * Historical monthly aggregates for the 12 months prior to the report period.
+   * Ordered oldest-first. Used to render the "Indicadores Históricos" line chart.
+   */
+  historicalMonthlyRaw: HistoricalMonthlyRaw[];
+}
+
+/** Raw monthly data slice returned by the DB layer for the historical indicators chart. */
+export interface HistoricalMonthlyRaw {
+  /** 'YYYY-MM' */
+  month: string;
+  /** Human-readable short label, e.g. 'Ene 24' */
+  label: string;
+  /** Sum of invoice amounts issued in this month */
+  invoiced: number;
+  /** Sum of payment amounts received in this month */
+  paymentsReceived: number;
+  /** Sum of expense amounts with payment_date in this month */
+  expensesPaid: number;
+  /** Approximate AR outstanding at end of month: max(0, cumulative invoiced − cumulative payments) */
+  ar: number;
+  /** AP outstanding at end of month (expenses with date ≤ month-end, not yet paid) */
+  ap: number;
+  /**
+   * Cumulative payments received minus cumulative expenses paid up to end of month.
+   * Does NOT include the INITIAL_BANK_BALANCE offset — that is added in the data layer.
+   */
+  bankBalanceBase: number;
 }
 
 /**
@@ -886,6 +914,48 @@ export function queryForReport(
       .map(r => [r.client_id, r.full_name.trim()])
   );
 
+  // ── Historical monthly data: 12 months prior to periodStart ─────────────
+  const HIST_MONTH_NAMES_ES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const histStmtInvoicedMonth    = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM invoices  WHERE date >= ? AND date <= ? AND is_deleted = 0`);
+  const histStmtPaymentsMonth    = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM payments  WHERE date >= ? AND date <= ? AND is_deleted = 0`);
+  const histStmtExpsPaidMonth    = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses  WHERE payment_date >= ? AND payment_date <= ? AND is_deleted = 0`);
+  const histStmtCumInvoiced      = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM invoices  WHERE date <= ? AND is_deleted = 0`);
+  const histStmtCumPayments      = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM payments  WHERE date <= ? AND is_deleted = 0`);
+  const histStmtCumExpsPaid      = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses  WHERE payment_date IS NOT NULL AND payment_date <= ? AND is_deleted = 0`);
+  const histStmtAP               = db.prepare(`SELECT COALESCE(SUM(amount),0) AS total FROM expenses  WHERE is_deleted = 0 AND (date IS NULL OR date <= ?) AND (payment_date IS NULL OR payment_date > ?)`);
+
+  const pStartYear  = periodStart.getFullYear();
+  const pStartMonth = periodStart.getMonth(); // 0-indexed
+  const historicalMonthlyRaw: HistoricalMonthlyRaw[] = [];
+  for (let i = 12; i >= 1; i--) {
+    const absMonth = pStartYear * 12 + pStartMonth - i;
+    const yr = Math.floor(absMonth / 12);
+    const mo = absMonth % 12; // 0-indexed
+    const monthKey   = `${yr}-${String(mo + 1).padStart(2, '0')}`;
+    const monthLabel = `${HIST_MONTH_NAMES_ES[mo]} ${String(yr).slice(-2)}`;
+    const firstDay   = format(new Date(yr, mo, 1), 'yyyy-MM-dd');
+    const lastDay    = format(new Date(yr, mo + 1, 0), 'yyyy-MM-dd');
+
+    const invoiced         = (histStmtInvoicedMonth.get(firstDay, lastDay)   as { total: number }).total;
+    const paymentsReceived = (histStmtPaymentsMonth.get(firstDay, lastDay)   as { total: number }).total;
+    const expensesPaid     = (histStmtExpsPaidMonth.get(firstDay, lastDay)   as { total: number }).total;
+    const cumInvoiced      = (histStmtCumInvoiced.get(lastDay)               as { total: number }).total;
+    const cumPayments      = (histStmtCumPayments.get(lastDay)               as { total: number }).total;
+    const cumExpsPaid      = (histStmtCumExpsPaid.get(lastDay)               as { total: number }).total;
+    const ap               = (histStmtAP.get(lastDay, lastDay)               as { total: number }).total;
+
+    historicalMonthlyRaw.push({
+      month:           monthKey,
+      label:           monthLabel,
+      invoiced,
+      paymentsReceived,
+      expensesPaid,
+      ar:              Math.max(0, cumInvoiced - cumPayments),
+      ap,
+      bankBalanceBase: cumPayments - cumExpsPaid,
+    });
+  }
+
   return {
     allInvoices,
     periodInvoices,
@@ -914,6 +984,7 @@ export function queryForReport(
         .map(r => [r.invoice_id, r.paid_date])
     ),
     primaryContactByClientId,
+    historicalMonthlyRaw,
   };
 }
 

@@ -166,6 +166,32 @@ export interface HoaReportData {
    * If empty or undefined the docs page is omitted.
    */
   docsMarkdown?: string;
+
+  /**
+   * Historical monthly indicators for the 12 months prior to the report period.
+   * Ordered oldest-first. Used to render the "Indicadores Históricos" line chart.
+   */
+  historicalMonthly: HistoricalMonthlyPoint[];
+}
+
+/** One month's data point for the "Indicadores Históricos" multi-line chart. */
+export interface HistoricalMonthlyPoint {
+  /** 'YYYY-MM' */
+  month: string;
+  /** Human-readable short label, e.g. 'Ene 24' */
+  label: string;
+  /** Sum of invoice amounts issued in this month */
+  invoiced: number;
+  /** Sum of payment amounts received in this month */
+  paymentsReceived: number;
+  /** Sum of expense amounts with payment_date in this month */
+  expensesPaid: number;
+  /** Approximate AR outstanding at end of month */
+  ar: number;
+  /** AP outstanding at end of month */
+  ap: number;
+  /** Estimated bank balance at end of month */
+  bankBalance: number;
 }
 
 export interface PaymentsByGroup {
@@ -427,7 +453,11 @@ export function buildHoaReportData(
   allTimeExpensesPaidTotal = 0,
   initialBalance = 0,
   invoiceLastPaymentDate: Record<string, string> = {},
-  primaryContactByClientId: Record<string, string> = {}
+  primaryContactByClientId: Record<string, string> = {},
+  historicalMonthlyRaw: Array<{
+    month: string; label: string; invoiced: number; paymentsReceived: number;
+    expensesPaid: number; ar: number; ap: number; bankBalanceBase: number;
+  }> = []
 ): HoaReportData {
   // --- Exclude soft-deleted records from all calculations ---
   // Invoice Ninja soft-deletes records (is_deleted=true) instead of removing them
@@ -1049,6 +1079,16 @@ export function buildHoaReportData(
     perpetualResult: allTimePaymentsTotal - allTimeExpensesPaidTotal,
     bankBalance: (allTimePaymentsTotal - allTimeExpensesPaidTotal) + initialBalance,
     openingBalance: balanceAtPeriodStart,
+    historicalMonthly: historicalMonthlyRaw.map(r => ({
+      month:           r.month,
+      label:           r.label,
+      invoiced:        r.invoiced,
+      paymentsReceived:r.paymentsReceived,
+      expensesPaid:    r.expensesPaid,
+      ar:              r.ar,
+      ap:              r.ap,
+      bankBalance:     r.bankBalanceBase + initialBalance,
+    })),
   };
 }
 
