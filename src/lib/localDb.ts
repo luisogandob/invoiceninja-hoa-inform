@@ -244,7 +244,8 @@ export interface DbQueryResult {
   primaryContactByClientId: Record<string, string>;
   /**
    * Historical monthly aggregates for the 12 months prior to the report period.
-   * Ordered oldest-first. Used to render the "Indicadores Históricos" line chart.
+   * Ordered oldest-first; always contains exactly 12 entries.
+   * Used to render the "Indicadores Históricos" line chart.
    */
   historicalMonthlyRaw: HistoricalMonthlyRaw[];
 }
