@@ -474,14 +474,15 @@ class InvoiceNinjaClient {
    * Upload a document to a company (makes it publicly visible to portal users).
    *
    * Invoice Ninja v5 stores company documents at `PUT /companies/{id}/upload`.
-   * The file is attached as a multipart `documents` field (the field name that
-   * IN v5's CompanyController.upload checks via `$request->file('documents')`).
+   * The file is attached as a multipart `documents[]` field (array notation is
+   * required because IN v5's SavesDocuments::saveDocuments() checks is_array()
+   * and silently exits if the value is not an array).
    * The request is sent as POST with `_method=PUT` for Laravel method spoofing.
    */
   async uploadCompanyDocument(companyId: string, fileBuffer: Buffer, filename: string): Promise<any> {
     try {
       const formData = new FormData();
-      formData.append('documents', fileBuffer, { filename, contentType: 'application/pdf' });
+      formData.append('documents[]', fileBuffer, { filename, contentType: 'application/pdf' });
       formData.append('_method', 'PUT');
 
       const response = await this.client.post(
@@ -507,7 +508,7 @@ class InvoiceNinjaClient {
   async uploadExpenseDocument(expenseId: string, fileBuffer: Buffer, filename: string): Promise<any> {
     try {
       const formData = new FormData();
-      formData.append('documents', fileBuffer, { filename, contentType: 'application/octet-stream' });
+      formData.append('documents[]', fileBuffer, { filename, contentType: 'application/octet-stream' });
       formData.append('_method', 'PUT');
 
       const response = await this.client.post(
